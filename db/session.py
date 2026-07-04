@@ -6,8 +6,24 @@ from sqlalchemy.orm import sessionmaker
 
 from db.models import Base
 
+def _normalize_db_url(raw: str | None) -> str:
+    """Secretsの貼り付けミスを吸収する。
+    - 前後の空白・引用符を除去
+    - Neonが表示する `psql '...'` 形式のコマンドラッパーを剥がす
+    - SQLAlchemy 2.0 が受け付けない `postgres://` を `postgresql://` に補正
+    """
+    if not raw:
+        return "sqlite:///data/meishi.db"
+    url = raw.strip().strip("'").strip('"').strip()
+    if url.lower().startswith("psql "):
+        url = url[len("psql "):].strip().strip("'").strip('"').strip()
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    return url or "sqlite:///data/meishi.db"
+
+
 # 未設定ならローカルSQLite。クラウドでは Neon の postgresql URL を DATABASE_URL に設定する。
-DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///data/meishi.db"
+DATABASE_URL = _normalize_db_url(os.getenv("DATABASE_URL"))
 
 # SQLite 固有の接続引数は Postgres では使わない
 if DATABASE_URL.startswith("sqlite"):
