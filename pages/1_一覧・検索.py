@@ -53,6 +53,24 @@ table = [
 ]
 st.dataframe(table, use_container_width=True, hide_index=True)
 
+# ── まとめて削除（重複の整理） ─────────────────────────
+with st.expander("🗑️ まとめて削除（重複の整理）"):
+    del_map = {
+        f'{c["id"]}: {c["name"] or "(無題)"} / {c["company"]}': c["id"]
+        for c in results
+    }
+    to_delete = st.multiselect("削除する名刺を選択（複数可）", options=list(del_map.keys()))
+    if to_delete:
+        confirm = st.checkbox(
+            f"⚠️ {len(to_delete)} 件を削除します（元に戻せません）",
+            key="bulk_del_confirm",
+        )
+        if st.button("🗑️ 選択した名刺を削除", type="primary", disabled=not confirm):
+            for label in to_delete:
+                cards.delete(del_map[label])
+            st.success(f"{len(to_delete)} 件を削除しました。")
+            st.rerun()
+
 # ── 詳細（編集・削除） ──────────────────────────────────
 st.divider()
 st.subheader("詳細・編集")
