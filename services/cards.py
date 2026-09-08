@@ -96,7 +96,10 @@ def update(card_id: int, fields: dict) -> None:
 
 
 def delete(card_id: int) -> None:
-    """カードを削除（画像もDBから消える）。"""
+    """カードを削除（画像もDBから消える）。お礼メールの履歴も一緒に消す。"""
+    from services import mail_log  # 循環 import 回避のため関数内で読む
+
+    mail_log.delete_for_card(card_id)
     db = SessionLocal()
     try:
         card = db.get(MeishiCard, card_id)

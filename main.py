@@ -2,7 +2,8 @@
 
 import streamlit as st
 
-import config  # noqa: F401  .env / st.secrets を環境変数へ（最初に実行）
+import config  # noqa: F401
+from auth import require_login
 from db.models import FIELDS
 from db.session import init_db
 from ocr.extract import extract_cards, ExtractError
@@ -10,6 +11,8 @@ from services import cards
 from services.imaging import to_jpeg_bytes
 
 st.set_page_config(page_title="名刺管理", page_icon="📇", layout="wide")
+
+require_login()
 
 init_db()
 

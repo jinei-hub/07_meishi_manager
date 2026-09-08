@@ -1,0 +1,4 @@
+# 名刺管理アプリのポートを固定（02_sns_analyser=8501 と衝突しないよう 8502 に固定）
+[server]
+port = 8502
+headless = true

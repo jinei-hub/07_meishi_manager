@@ -2,12 +2,17 @@
 
 import streamlit as st
 
+import config  # noqa: F401
+from auth import require_login
 from db.models import FIELDS
 from db.session import init_db
+from mail.ui import render_mail_section
 from services import cards
 from services.export import to_csv_bytes, to_vcard_bytes
 
 st.set_page_config(page_title="一覧・検索", page_icon="📋", layout="wide")
+
+require_login()
 init_db()
 
 st.title("📋 名刺一覧・検索")
@@ -115,3 +120,6 @@ if card:
                 cards.delete(card_id)
                 st.success("削除しました。")
                 st.rerun()
+
+    st.divider()
+    render_mail_section(card)

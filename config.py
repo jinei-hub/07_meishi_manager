@@ -15,7 +15,16 @@ from dotenv import load_dotenv
 # ローカルの .env を優先（シェルに残った空の値を上書き）
 load_dotenv(override=True)
 
-_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "DATABASE_URL")
+_KEYS = (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "DATABASE_URL",
+    # ── Gmail 下書き作成（tools/gmail_auth.py で取得した値を入れる）
+    # ネストした [gmail] テーブルにせずフラットに保つ。下の橋渡しループがそのまま使えるため。
+    "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN",
+    # メール署名（住所・電話をリポジトリに置かないため環境変数で渡す）
+    "MAIL_SIGNATURE",
+    # アプリ全体のパスワードロック（未設定だと誰でも閲覧できる）
+    "APP_PASSWORD",
+)
 
 # Streamlit Cloud の Secrets を環境変数へ橋渡し（.env が無い環境向け）
 try:

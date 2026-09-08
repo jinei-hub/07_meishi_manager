@@ -6,3 +6,7 @@ Pillow>=10.0.0
 pandas>=2.2.0
 pillow-heif>=0.16.0
 psycopg2-binary>=2.9.9
+# Gmail 下書き作成（17_cossot_invoice と同じ組み合わせ）
+google-api-python-client>=2.190.0
+google-auth>=2.50.0
+google-auth-oauthlib>=1.2.0
