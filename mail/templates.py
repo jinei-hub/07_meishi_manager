@@ -171,7 +171,7 @@ PATTERNS = [
         "id": "contract",
         "label": "A. 契約のお礼（添付あり）",
         "hint": "契約書を添付して送るとき",
-        "subject": "本日のお礼と今後の進め方について【株式会社DiPilot・奥河鎮映】",
+        "subject": "本日のお礼と今後の進め方について【株式会社DiPilot・奥河鎭映】",
         "inputs": [
             {"key": "contract_name", "label": "ご契約の内容",
              "default": "AIパートナー（FDE）", "placeholder": "AIパートナー（FDE）"},
@@ -191,7 +191,7 @@ PATTERNS = [
         "id": "thanks",
         "label": "B. 本日のお礼だけ（シンプル）",
         "hint": "打ち合わせ後の定型のお礼",
-        "subject": "本日のお礼【株式会社DiPilot・奥河鎮映】",
+        "subject": "本日のお礼【株式会社DiPilot・奥河鎭映】",
         "inputs": [],
         "build": _build_thanks,
     },
@@ -199,7 +199,7 @@ PATTERNS = [
         "id": "next_meeting",
         "label": "C. 次回日程の提案",
         "hint": "「次はこの日で進められたら」を伝えるとき",
-        "subject": "次回のお打ち合わせ日程のご相談【株式会社DiPilot・奥河鎮映】",
+        "subject": "次回のお打ち合わせ日程のご相談【株式会社DiPilot・奥河鎭映】",
         "inputs": [
             {"key": "date1", "label": "第1希望", "default": "",
              "placeholder": "10月19日（月）10:00〜"},
