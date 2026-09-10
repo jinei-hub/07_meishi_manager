@@ -5,12 +5,13 @@
     python3 tools/gmail_auth.py
 
 ブラウザが開くので jinei@dipilot.jp を選び、「Gmail の下書きの作成」を許可する。
-成功すると credentials/token.json に保存し、.env / Streamlit Secrets に貼る値を表示する。
+成功すると credentials/token.json に保存し、.env を更新し、Streamlit Secrets 用の値を
+credentials/streamlit_secrets.txt に書き出す（秘密情報は画面に出さない）。
 
 17_cossot_invoice/auth.py がベース。違いは次の3点:
   - スコープが gmail.compose（Drive/Sheets ではない）
   - config を import しない（07 の config.py は streamlit を引き込むため、単体で完結させる）
-  - token.json に保存するだけでなく、クラウド用に refresh_token を標準出力へ出す
+  - token.json に加えて .env とクラウド用ファイルを書く（値は標準出力に出さない）
 """
 
 from __future__ import annotations
