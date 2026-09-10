@@ -1,7 +1,8 @@
 import os
 
 import config  # .env / st.secrets を環境変数へ読み込む（副作用）
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import sessionmaker
 
 from db.models import Base
@@ -35,11 +36,32 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+_initialized = False
+
+
 def init_db():
-    """テーブルが存在しない場合のみ作成"""
+    """テーブルが存在しない場合のみ作成。
+
+    Postgres(Neon) では、複数のセッションが同時に create_all を実行すると
+    「存在確認 → CREATE TABLE」の隙間で競合し、pg_type の一意制約違反
+    （IntegrityError）になることがある。Streamlit はセッションごとに
+    スクリプトを並行実行するため、タブを複数開くと普通に起きる。
+
+    競合した側は「相手が作り終えた」だけなので握りつぶしてよい。ただし
+    本物の失敗を隠さないよう、テーブルが実際に揃ったかを確認してから通す。
+    """
+    global _initialized
+    if _initialized:
+        return
     if DATABASE_URL.startswith("sqlite"):
         os.makedirs("data", exist_ok=True)
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except (IntegrityError, ProgrammingError, OperationalError):
+        missing = set(Base.metadata.tables) - set(inspect(engine).get_table_names())
+        if missing:
+            raise   # 競合ではなく本当に作れていない
+    _initialized = True
 
 
 def get_db():
