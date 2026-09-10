@@ -86,10 +86,14 @@ MAIL_SIGNATURE = "--\n━━━━━━━━━━━━━━━━━━━�
 設定しなくても名刺の登録・一覧・検索は普通に動きます。
 
 ### 4-1. Google Cloud コンソール（ブラウザ・約5分）
-1. https://console.cloud.google.com/ を開き、右上のアカウントが **jinei@dipilot.jp** か確認
-2. 上部のプロジェクト選択で **`alien-device-499902-n3`** を選ぶ（04_invoice_uploader と同じもの）
-3. 「APIとサービス」→「ライブラリ」→ `Gmail API` を検索 →「**有効にする**」
-4. 「APIとサービス」→「**OAuth同意画面**」で **User type** を確認する
+使うプロジェクトは **`sns-autopost-502015`**（02_sns_analyser と同じ）。
+dipilot.jp 組織の配下にあるため OAuth 同意画面を「内部」にでき、
+refresh_token が7日で失効する問題を避けられる。
+
+1. 次のリンクを開いて「**有効にする**」を押す（Gmail API の有効化）
+   https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=sns-autopost-502015
+2. 次のリンクで **User type** を確認する（OAuth同意画面）
+   https://console.cloud.google.com/auth/overview?project=sns-autopost-502015
    - 「**内部**」と出ていれば ✅ そのままでよい
    - 「**外部**」＋「**テスト**」の場合は、ログイン状態が **7日で切れる**。
      「**本番環境に公開**」を押しておく（自分専用アプリなので警告は続行してよい）

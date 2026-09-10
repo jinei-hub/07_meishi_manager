@@ -28,9 +28,12 @@ EXPECTED_ACCOUNT = "jinei@dipilot.jp"
 
 # client_secret の探索順。
 # 既存規約:「OAuthクライアント(credentials.json)は流用してよいが、token.json は共用しない」
+# 02 を先に見る: プロジェクト sns-autopost は dipilot.jp 組織の配下にあり、
+# OAuth 同意画面を「内部」にできる = refresh_token が7日で失効しない。
 CANDIDATES = [
     os.getenv("GOOGLE_CLIENT_SECRET_FILE"),
     BASE_DIR / "credentials" / "credentials.json",
+    BASE_DIR.parent / "02_sns_analyser" / "data" / "google_oauth_client.json",
     BASE_DIR.parent / "04_invoice_uploader" / "credentials" / "credentials.json",
 ]
 
@@ -59,7 +62,11 @@ def main() -> None:
         sys.exit(1)
 
     path = _find_client_secret()
+    import json
+    _cfg = json.load(open(path, encoding="utf-8"))
+    _proj = list(_cfg.values())[0].get("project_id", "?")
     print(f"OAuth クライアント: {path}")
+    print(f"GCP プロジェクト  : {_proj}")
     print("ブラウザが開きます。jinei@dipilot.jp を選んでください…\n")
 
     flow = InstalledAppFlow.from_client_secrets_file(str(path), SCOPES)
