@@ -73,6 +73,11 @@ streamlit run main.py
   非ASCII文字列を受け付けず、日本語のパスワードでクラッシュする。
 - Streamlit Cloud を private リポジトリで動かすには GitHub の `repo` スコープが要る。
   承認していない状態で private にすると clone に失敗してアプリが落ちる（2026-09-08 に発生）。
+- **`.streamlit/config.toml` はコミットしないこと**（.gitignore 済み）。
+  `port = 8502` はローカルで 02_sns_analyser と衝突させないための設定で、
+  クラウドに持ち込むとそのポートで起動してヘルスチェックに失敗し、
+  `Oh no. Error running app.` になる（2026-09-09 に発生）。
+  `git add -A` のときに巻き込みやすいので注意する。
 
 ## 設計メモ / 規約
 - 抽出項目（追加時はここを直す）: `db/models.py` の `FIELDS` が唯一の定義源。

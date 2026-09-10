@@ -1,5 +1,8 @@
 .env
 .streamlit/secrets.toml
+# ローカル専用のポート設定。コミットすると Streamlit Cloud が
+# そのポートで起動してヘルスチェックに失敗する（2026-09-09 に発生）
+.streamlit/config.toml
 credentials/
 data/
 .venv/
