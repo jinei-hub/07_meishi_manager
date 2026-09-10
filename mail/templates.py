@@ -39,7 +39,7 @@ def signature() -> str:
     return raw.replace("\\n", "\n")
 
 OPENING = """お世話になっております。
-株式会社DiPilotでございます。
+株式会社DiPilotの奥河です。
 
 本日はご多忙の中、お時間をいただき誠にありがとうございました。"""
 
