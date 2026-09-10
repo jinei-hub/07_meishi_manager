@@ -72,17 +72,7 @@ APP_PASSWORD = "（自分で決めた強めのパスワード）"
 あわせて、メール署名（住所・電話）もリポジトリではなく Secrets に置きます:
 
 ```toml
-MAIL_SIGNATURE = "--
-━━━━━━━━━━━━━━━━━━━━━━━━━ 
-
-株式会社DiPilot 奥河 鎭映 / Jinei Okugawa
-
-Address：〒000-0000 ...
-TEL：000-0000-0000
-Email：jinei@dipilot.jp
-Web：https://dipilot.jp/
-
-━━━━━━━━━━━━━━━━━━━━━━━━━"
+MAIL_SIGNATURE = "--\n━━━━━━━━━━━━━━━━━━━━━━━━━ \n\n株式会社DiPilot 奥河 鎭映 / Jinei Okugawa\n\nAddress：〒000-0000 ...\nTEL：000-0000-0000\nEmail：jinei@dipilot.jp\nWeb：https://dipilot.jp/\n\n━━━━━━━━━━━━━━━━━━━━━━━━━"
 ```
 
 改行は `\n` と書いて**1行に収めてください**（TOMLの複数行は壊れやすいため）。
