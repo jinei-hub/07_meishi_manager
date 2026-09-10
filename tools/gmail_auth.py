@@ -99,22 +99,39 @@ def main() -> None:
         print("   別のアカウントで下書きを作りたい場合を除き、やり直してください。")
     print(f"   トークン保存先: {TOKEN_PATH}")
 
-    print("\n" + "─" * 60)
-    print("【1】.env の末尾に貼る（ローカル用）")
-    print("─" * 60)
-    print(f"GOOGLE_CLIENT_ID={creds.client_id}")
-    print(f"GOOGLE_CLIENT_SECRET={creds.client_secret}")
-    print(f"GMAIL_REFRESH_TOKEN={creds.refresh_token}")
+    # ── .env を自動更新（値を画面に出さない）──────────────
+    env_path = BASE_DIR / ".env"
+    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    values = {
+        "GOOGLE_CLIENT_ID": creds.client_id,
+        "GOOGLE_CLIENT_SECRET": creds.client_secret,
+        "GMAIL_REFRESH_TOKEN": creds.refresh_token,
+    }
+    seen = set()
+    for i, line in enumerate(lines):
+        for k, v in values.items():
+            if line.startswith(f"{k}="):
+                lines[i] = f"{k}={v}"
+                seen.add(k)
+    for k, v in values.items():
+        if k not in seen:
+            lines.append(f"{k}={v}")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(env_path, 0o600)
+    print(f"\n✅ .env を更新しました（ローカルはこれで動きます）")
 
-    print("\n" + "─" * 60)
-    print("【2】Streamlit Cloud の Settings → Secrets に貼る（TOML）")
-    print("─" * 60)
-    print(f'GOOGLE_CLIENT_ID = "{creds.client_id}"')
-    print(f'GOOGLE_CLIENT_SECRET = "{creds.client_secret}"')
-    print(f'GMAIL_REFRESH_TOKEN = "{creds.refresh_token}"')
-
-    print("\n⚠️ これらの値は GitHub に push しないこと（.env と credentials/ は .gitignore 済み）。")
-    print("   チャットやメールにも貼らないこと。貼り終えたら `clear` で画面を消してよい。")
+    # ── Streamlit Secrets 用は gitignore 済みのフォルダにファイルで出す ──
+    out = TOKEN_PATH.parent / "streamlit_secrets.txt"
+    out.write_text(
+        f'GOOGLE_CLIENT_ID = "{creds.client_id}"\n'
+        f'GOOGLE_CLIENT_SECRET = "{creds.client_secret}"\n'
+        f'GMAIL_REFRESH_TOKEN = "{creds.refresh_token}"\n',
+        encoding="utf-8",
+    )
+    os.chmod(out, 0o600)
+    print(f"✅ クラウド用の3行を書き出しました:\n   {out}")
+    print("   このファイルを開いて中身を Streamlit Cloud の Secrets に貼り付けてください。")
+    print("\n⚠️ .env / credentials/ は .gitignore 済みです。中身を GitHub やチャットに貼らないこと。")
 
 
 if __name__ == "__main__":
