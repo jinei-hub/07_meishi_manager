@@ -57,8 +57,9 @@ streamlit run main.py
 - `DATABASE_URL` … 既定 `sqlite:///data/meishi.db`
 - `APP_PASSWORD` … **クラウドでは必須**。アプリを開くのに要るパスワード。
   未設定だと URL を知る誰でも名刺データを閲覧できる（画面に警告が出続ける）。
-- `MAIL_SIGNATURE` … 任意。メール署名。改行は `\n` で1行に書く。
-  未設定なら会社名・メール・Web だけの署名になる（住所と電話はコードに置かない）。
+- `MAIL_SIGNATURE` … 任意。**未設定なら本文に署名を入れない**（Gmail 側の署名に任せる方針）。
+  ただし Gmail の署名が自動で入るのは画面から「作成」したときだけで、
+  API で作った下書きには入らない。付かなければここに設定する。改行は `\n` で1行に書く。
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GMAIL_REFRESH_TOKEN`
   … 任意。お礼メールの下書き作成に使う。`python3 tools/gmail_auth.py` で取得する。
   未設定でも名刺の登録・一覧・検索は普通に動く（メール機能だけが無効になる）。

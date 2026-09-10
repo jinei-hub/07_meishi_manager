@@ -14,27 +14,22 @@ import os
 # ここから下の文字列を直せば文面が変わる（直接編集してよい箇所）
 # ══════════════════════════════════════════════════════════════════
 
-# 署名は環境変数 MAIL_SIGNATURE で差し替える。
-# 住所・電話番号をリポジトリに置かないための措置（このリポジトリは公開されている）。
-# 値の中の \n は改行として扱うので、.env / Secrets には1行で書ける:
-#   MAIL_SIGNATURE="--\n\n株式会社DiPilot 奥河 鎮映\n\nTEL：...\nEmail：..."
-# 未設定なら下の既定値（公開情報のみ）を使う。
-DEFAULT_SIGNATURE = """--
-
-_______________________________
-
-株式会社DiPilot 奥河 鎮映 / Jinei Okugawa
-
-Email：jinei@dipilot.jp
-Web：https://dipilot.jp/
-_______________________________"""
+# 署名は既定では本文に入れない。Gmail 側の署名設定に任せる想定。
+#
+# ⚠️ 注意: Gmail の署名が自動で入るのは、Gmail の画面で「作成」を押したとき
+# （ブラウザ側で挿入される）。API で作った下書きには入らない。
+# 実際に下書きを作って署名が付かなかったら、環境変数 MAIL_SIGNATURE に
+# 署名を入れれば本文の末尾に付く。改行は \n と書いて1行に収める:
+#   MAIL_SIGNATURE="--\n━━━━━\n株式会社DiPilot 奥河 鎭映\nTEL：...\nEmail：..."
+#
+# 住所・電話番号をコードに書かないための措置でもある（このリポジトリは公開されている）。
 
 
 def signature() -> str:
-    """メール末尾の署名。MAIL_SIGNATURE があればそれを使う。"""
+    """メール末尾の署名。MAIL_SIGNATURE が未設定なら空（＝署名を入れない）。"""
     raw = (os.getenv("MAIL_SIGNATURE") or "").strip()
     if not raw:
-        return DEFAULT_SIGNATURE
+        return ""
     # .env / TOML どちらで書いてもリテラルの \n を改行にする
     return raw.replace("\\n", "\n")
 
@@ -87,7 +82,9 @@ def _honorific(card: dict) -> str:
 
 def _assemble(card: dict, blocks: list[str]) -> str:
     """宛名 + 出だし + 本体ブロック + 締め + 署名。空ブロックは落とす。"""
-    parts = [build_greeting(card), OPENING, *[b for b in blocks if b], CLOSING, signature()]
+    parts = [build_greeting(card), OPENING, *[b for b in blocks if b], CLOSING]
+    if sig := signature():
+        parts.append(sig)
     return "\n\n".join(parts)
 
 
