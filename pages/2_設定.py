@@ -5,7 +5,7 @@ import os
 import streamlit as st
 
 import config  # noqa: F401  .env / st.secrets を環境変数へ（最初に実行）
-from auth import is_locked, require_login
+from auth import REMEMBER_DAYS, is_locked, logout, require_login
 from db.session import init_db, DATABASE_URL
 from mail import gmail
 from mail.gmail import GmailError
@@ -41,7 +41,16 @@ st.metric("登録名刺数", cards.count())
 st.subheader("アクセス制限")
 if is_locked():
     st.success("パスワードロック: 有効")
-    st.caption("このアプリを開くにはパスワードが必要です。")
+    st.caption(
+        f"このアプリを開くにはパスワードが必要です。"
+        f"ログインは最大{REMEMBER_DAYS}日間このブラウザに保持されます。"
+    )
+    if st.button("🚪 このブラウザのログインを解除"):
+        logout()
+    st.caption(
+        "端末を紛失した場合は、Secrets の `APP_PASSWORD` を変更してください。"
+        "すべての端末のログインが即座に無効になります。"
+    )
 else:
     st.error(
         "パスワードロック: 無効 — URLを知っている人は誰でも名刺データを閲覧できます。"

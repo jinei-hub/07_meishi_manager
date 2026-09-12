@@ -72,6 +72,11 @@ streamlit run main.py
   ページを追加したら忘れずに入れる（`st.set_page_config` の直後）。
 - `auth.py` の突き合わせは必ず bytes で行う。`hmac.compare_digest` は
   非ASCII文字列を受け付けず、日本語のパスワードでクラッシュする。
+- ログイン保持の Cookie に入るのは「有効期限 + その HMAC」だけ。鍵は `APP_PASSWORD`。
+  パスワードそのものは入らず、改ざんすると検証に落ちる。
+  **`APP_PASSWORD` を変えると全端末のログインが即座に無効になる**（端末紛失時の対処）。
+  Cookie の読みは `st.context.cookies`、書きは JS。`st.components.v1.html` は
+  非推奨警告が出るが `st.iframe` では代替できない（理由は auth.py のコメント参照）。
 - Streamlit Cloud を private リポジトリで動かすには GitHub の `repo` スコープが要る。
   承認していない状態で private にすると clone に失敗してアプリが落ちる（2026-09-08 に発生）。
 - **`.streamlit/config.toml` はコミットしないこと**（.gitignore 済み）。
