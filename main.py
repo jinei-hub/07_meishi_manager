@@ -6,6 +6,7 @@ import streamlit as st
 from PIL import Image
 
 import config  # noqa: F401
+from camera import CAMERA_MARKER, use_rear_camera
 from theme import apply_theme
 from auth import require_login
 from db.models import FIELDS
@@ -25,39 +26,20 @@ st.title("📇 名刺を登録")
 st.caption("名刺を撮影またはアップロードすると、AIが項目を読み取り、隣にコピー可能な形で表示します。")
 
 # ── 入力 ───────────────────────────────────────────────
-# 端末のカメラアプリを使わせるのが要点。st.camera_input（ブラウザ内蔵カメラ）は
-# 解像度が低く、ピント合わせも効かないので名刺の小さな文字が潰れる。
-# file_uploader ならスマホで「写真を撮る」を選べて、センサーの実力で撮れる。
-up_img = st.file_uploader(
-    "名刺の写真",
-    type=["jpg", "jpeg", "png", "heic", "heif", "webp"],
-    key="upload",
-)
-st.caption(
-    "📱 スマホは上をタップ →「写真を撮る」で端末のカメラが開きます。"
-    "ピントを合わせてから撮ると読み取り精度が上がります。"
-)
+# 「撮る」は端末のカメラアプリを直接開く（camera.py で capture=environment を付ける）。
+# 全画面・外カメラ・フル画質で撮れて、ブラウザ内蔵カメラの弱点を全部回避できる。
+TYPES = ["jpg", "jpeg", "png", "heic", "heif", "webp"]
 
-# ⚠️ camera_input を expander の中に置かないこと。
-# expander の中身は畳んだ状態でも画面に読み込まれるため、隠れたまま起動に失敗し、
-# 開いても再試行されない（＝カメラが映らない。2026-09-13 に実機で発生）。
-# toggle なら ON にした時点で初めて表示された状態で読み込まれるので確実に起動する。
-cam_img = None
-if st.toggle("💻 ブラウザ内蔵のカメラを使う（画質は落ちます）", key="use_browser_cam"):
-    st.caption("PCのWebカメラ向け。スマホでは上の「写真を撮る」の方がきれいに撮れます。")
-    cam_img = st.camera_input("名刺を撮影", key="cam")
-    if cam_img is None:
-        st.caption(
-            "「This app would like to use your camera」と出る場合はブラウザの許可待ちです。"
-            "iPhone は 設定アプリ →「Safari」→「カメラ」→「許可」。"
-            "許可したらこのページを再読み込みしてください。"
-        )
+cam_file = st.file_uploader(f"📷 {CAMERA_MARKER}（カメラが開きます）", type=TYPES, key="up_cam")
+lib_file = st.file_uploader("🖼️ 保存済みの画像から選ぶ", type=TYPES, key="up_lib")
+use_rear_camera()
+st.caption("「撮る」はタップすると外カメラが全画面で開きます。ピントを合わせてから撮ってください。")
 
 raw = None
-if up_img is not None:
-    raw = up_img.getvalue()
-elif cam_img is not None:
-    raw = cam_img.getvalue()
+if cam_file is not None:
+    raw = cam_file.getvalue()
+elif lib_file is not None:
+    raw = lib_file.getvalue()
 
 # 画像が変わったら前回の抽出結果をクリア
 if raw is not None:

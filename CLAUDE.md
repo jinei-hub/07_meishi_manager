@@ -93,14 +93,15 @@ streamlit run main.py --server.port 8502   # 8501 は 02_sns_analyser が使う
 - Claude呼び出しは `02_sns_analyser/analysis/report.py` のパターンを踏襲
   （`thinking=adaptive` / `output_config` の json_schema / 例外別ハンドリング）。
 - 読み取れない項目は空文字 `""`。値の捏造は system プロンプトで禁止。
-- **撮影は端末のカメラアプリを使わせる。** `st.camera_input`（ブラウザ内蔵カメラ）は
-  解像度が低くピントも合わせられず、名刺の小さな文字が潰れる。`st.file_uploader` なら
-  スマホで「写真を撮る」を選べてセンサーの実力で撮れるので、そちらを主動線にしている。
-  内蔵カメラは PC 用に toggle の裏へ。
-  **`st.camera_input` を `st.expander` の中に置かないこと。** expander の中身は
-  畳んだ状態でも読み込まれるため、隠れたままカメラの起動に失敗し、開いても
-  再試行されない（＝映らない。2026-09-13 に実機で発生）。toggle なら ON にした
-  時点で初めて表示された状態で読み込まれるので確実に起動する。
+- **`st.camera_input`（ブラウザ内蔵カメラ）は使わない。** 解像度が低い・ピントを
+  合わせられない・既定が内カメラ・小さな枠でしか見えない、のどれも Streamlit から
+  制御できず、名刺の文字が潰れる（2026-09-13 に実機で確認して撤去）。
+- **代わりに `camera.py` の `use_rear_camera()` で端末のカメラを直接開く。**
+  `file_uploader` の `<input type="file">` に `capture="environment"` を JS で付けると、
+  タップした瞬間に外カメラが全画面で起動する（1タップ・フル画質・ピント合わせ可）。
+  対象は**ラベルに `CAMERA_MARKER` を含む uploader だけ**。もう一方は写真アプリから
+  選べるよう `capture` を明示的に外す。Streamlit は再描画で DOM を作り直すため
+  MutationObserver で付け直し続けている。
 - **送信サイズはモデルの上限に合わせる（長辺 2576px）。** Claude 4.7 以降は
   高解像度ティアで長辺 2576px / 視覚トークン 4784 まで扱える（それ未満に縮めると
   自分で解像度を捨てることになる。2000px だった頃はこれで損をしていた）。
