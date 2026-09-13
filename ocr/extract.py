@@ -24,6 +24,11 @@ SYSTEM_PROMPT = (
     "電話・FAX・携帯は区別が付く場合のみ振り分け、不明なものは phone に入れること。"
     "郵便番号は数字とハイフンのみ（例: 123-4567）にし、それ以外の住所は address に入れること。"
     "名刺が1枚も無い場合は cards を空配列にすること。"
+    "さらに各名刺について、その名刺が画像のどこにあるかを bbox に入れること。"
+    "bbox は渡された画像の**ピクセル座標**で、左上が原点(0,0)、"
+    "x は右へ、y は下へ増える。x1,y1 が左上の角、x2,y2 が右下の角。"
+    "名刺の紙の外周にぴったり合わせ、他の名刺や背景を含めないこと。"
+    "名刺が1枚だけの場合もその1枚の外周を返すこと。"
 )
 
 _CARD_PROPS = {
@@ -41,6 +46,22 @@ _CARD_PROPS = {
 }
 _CARD_KEYS = list(_CARD_PROPS.keys())
 
+# 名刺の位置。複数枚を1枚の写真で撮ったとき、1枚ずつ切り出して保存するために使う。
+# 公式ドキュメントの指示どおり「正規化」ではなく絶対ピクセル座標で返させる
+# （正規化座標はうまく動かないと明記されている。2026-09-13 に確認）。
+_BBOX_PROP = {
+    "type": "object",
+    "description": "この名刺の外接矩形（渡された画像のピクセル座標）",
+    "properties": {
+        "x1": {"type": "integer", "description": "左上の x"},
+        "y1": {"type": "integer", "description": "左上の y"},
+        "x2": {"type": "integer", "description": "右下の x"},
+        "y2": {"type": "integer", "description": "右下の y"},
+    },
+    "required": ["x1", "y1", "x2", "y2"],
+    "additionalProperties": False,
+}
+
 # 構造化出力スキーマ（additionalProperties:false 必須）: 複数名刺に対応
 EXTRACT_SCHEMA = {
     "type": "object",
@@ -50,8 +71,8 @@ EXTRACT_SCHEMA = {
             "description": "検出した名刺（画像内の枚数分）",
             "items": {
                 "type": "object",
-                "properties": _CARD_PROPS,
-                "required": _CARD_KEYS,
+                "properties": {**_CARD_PROPS, "bbox": _BBOX_PROP},
+                "required": _CARD_KEYS + ["bbox"],
                 "additionalProperties": False,
             },
         },
@@ -59,6 +80,11 @@ EXTRACT_SCHEMA = {
     "required": ["cards"],
     "additionalProperties": False,
 }
+
+
+def current_model() -> str:
+    """実際に使うモデル名。画像サイズの上限を合わせるために外から参照する。"""
+    return os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL)
 
 
 class ExtractError(Exception):
@@ -72,7 +98,8 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
 
     Returns:
         [{name, company, department, title, phone, fax, mobile,
-          email, website, postal_code, address}, ...]  （検出した枚数分）
+          email, website, postal_code, address, bbox}, ...]  （検出した枚数分）
+        bbox は {x1,y1,x2,y2} のピクセル座標（取得できなければ None）
     Raises:
         ExtractError: APIキー未設定・認証失敗・通信エラー・応答パース失敗など。
     """
@@ -138,5 +165,10 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
         raise ExtractError("抽出結果の解析に失敗しました（不正なJSON）。") from e
 
     cards = result.get("cards", [])
-    # 各カードを既定キーで正規化（欠損は空文字）
-    return [{k: (c.get(k) or "") for k in _CARD_KEYS} for c in cards]
+    # 各カードを既定キーで正規化（欠損は空文字）。bbox は辞書のまま持つ。
+    out = []
+    for c in cards:
+        item = {k: (c.get(k) or "") for k in _CARD_KEYS}
+        item["bbox"] = c.get("bbox") if isinstance(c.get("bbox"), dict) else None
+        out.append(item)
+    return out

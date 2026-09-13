@@ -11,9 +11,9 @@ from theme import apply_theme
 from auth import require_login
 from db.models import FIELDS
 from db.session import init_db
-from ocr.extract import extract_cards, ExtractError
+from ocr.extract import current_model, extract_cards, ExtractError
 from services import cards
-from services.imaging import probe_size, to_jpeg_bytes
+from services.imaging import crop_bbox, probe_size, to_jpeg_bytes
 
 st.set_page_config(page_title="名刺管理", page_icon="📇", layout="wide")
 
@@ -55,7 +55,7 @@ if raw is not None:
         st.session_state.pop("extracted", None)
         try:
             st.session_state["src_size"] = probe_size(raw)
-            st.session_state["jpeg"] = to_jpeg_bytes(raw)
+            st.session_state["jpeg"] = to_jpeg_bytes(raw, model=current_model())
         except Exception as e:
             st.error(f"画像を読み込めませんでした: {e}")
             st.session_state.pop("jpeg", None)
@@ -106,6 +106,12 @@ if jpeg and "extracted" in st.session_state:
             title_txt = data.get("name") or "(氏名不明)"
             company_txt = data.get("company") or ""
             with st.expander(f"名刺 {i + 1}: {title_txt} / {company_txt}", expanded=(len(detected) == 1)):
+                # 複数枚を1枚の写真で撮っても、保存されるのはその人の名刺だけ
+                crop = crop_bbox(jpeg, data.get("bbox"))
+                if crop:
+                    st.image(crop, caption="この名刺として保存されます", width=320)
+                else:
+                    st.caption("切り出しに失敗したため、写真全体を保存します。")
                 for key, label in FIELDS:
                     value = data.get(key, "") or ""
                     st.markdown(f"**{label}**")
@@ -124,7 +130,9 @@ if jpeg and "extracted" in st.session_state:
                 fields["memo"] = st.session_state.get(f"edit_{i}_memo", "")
                 # 全項目が空のカードはスキップ
                 if any((fields.get(k) or "").strip() for k, _ in FIELDS):
-                    cards.create(fields, image_bytes=jpeg)  # 各カードに元画像を保存
+                    # その名刺の部分だけを保存する。切り出せなければ写真全体。
+                    crop = crop_bbox(jpeg, detected[i].get("bbox")) or jpeg
+                    cards.create(fields, image_bytes=crop)
                     saved += 1
             st.success(f"{saved} 件を保存しました。「一覧・検索」ページで確認できます。")
             for k in list(st.session_state.keys()):
