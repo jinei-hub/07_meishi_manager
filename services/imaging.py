@@ -136,3 +136,27 @@ def crop_bbox(jpeg: bytes, bbox: dict, margin: float = 0.04) -> bytes | None:
     mx, my = int(bw * margin), int(bh * margin)
     box = (max(0, x1 - mx), max(0, y1 - my), min(w, x2 + mx), min(h, y2 + my))
     return _encode(img.crop(box))
+
+
+def stack_vertical(top: bytes, bottom: bytes, gap: int = 24) -> bytes:
+    """表面の上に裏面を縦に並べた1枚の JPEG を作る。
+
+    DB の画像列は1つしかない（Alembic 未導入で列を足せない）ため、
+    表と裏を1枚にまとめて保存する。スマホは縦スクロールなので縦並びにする。
+    拡大すると文字がぼやけるので、幅は狭い方に揃える。
+    """
+    a = Image.open(io.BytesIO(top)).convert("RGB")
+    b = Image.open(io.BytesIO(bottom)).convert("RGB")
+    width = min(a.width, b.width)
+
+    def fit(img: Image.Image) -> Image.Image:
+        if img.width == width:
+            return img
+        return img.resize((width, max(1, round(img.height * width / img.width))),
+                          Image.LANCZOS)
+
+    a, b = fit(a), fit(b)
+    canvas = Image.new("RGB", (width, a.height + gap + b.height), "white")
+    canvas.paste(a, (0, 0))
+    canvas.paste(b, (0, a.height + gap))
+    return _encode(canvas)

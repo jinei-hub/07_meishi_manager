@@ -87,12 +87,41 @@ def current_model() -> str:
     return os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL)
 
 
+# 表と裏を1回で読むときの指示。複数画像は短いラベルで区切ると取り違えにくい
+# （公式ドキュメントの推奨。2026-09-13 に確認）。
+BACK_INSTRUCTION = (
+    "画像1と画像2は同じ名刺の表面と裏面です。両面の情報を1人分にまとめ、"
+    "cards には1件だけ返してください。"
+    "表面にしかない項目・裏面にしかない項目の両方を埋めること。"
+    "同じ項目が両面にあって表記が違う場合（日本語と英語など）は日本語表記を採用すること。"
+    "bbox は画像1（表面）での名刺の位置、back_bbox は画像2（裏面）での名刺の位置を、"
+    "それぞれの画像自身のピクセル座標で返すこと。"
+)
+
+
+def _schema(with_back: bool) -> dict:
+    """裏面ありのときだけ back_bbox を足したスキーマを返す。"""
+    if not with_back:
+        return EXTRACT_SCHEMA
+    cards = EXTRACT_SCHEMA["properties"]["cards"]
+    item = cards["items"]
+    return {
+        **EXTRACT_SCHEMA,
+        "properties": {"cards": {**cards, "items": {
+            **item,
+            "properties": {**item["properties"], "back_bbox": _BBOX_PROP},
+            "required": item["required"] + ["back_bbox"],
+        }}},
+    }
+
+
 class ExtractError(Exception):
     """抽出の失敗（UI へ分かりやすく伝える用）。"""
 
 
 def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
-                  model: str | None = None) -> list[dict]:
+                  model: str | None = None,
+                  back_image_bytes: bytes | None = None) -> list[dict]:
     """
     画像(bytes)を Claude Vision に渡し、写っている名刺を1枚以上抽出してリストで返す。
 
@@ -100,6 +129,7 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
         [{name, company, department, title, phone, fax, mobile,
           email, website, postal_code, address, bbox}, ...]  （検出した枚数分）
         bbox は {x1,y1,x2,y2} のピクセル座標（取得できなければ None）
+        back_image_bytes を渡すと表裏を1人分に統合し、back_bbox（裏面での位置）も返す
     Raises:
         ExtractError: APIキー未設定・認証失敗・通信エラー・応答パース失敗など。
     """
@@ -119,26 +149,39 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
     model = model or os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL)
     client = anthropic.Anthropic()
 
-    b64 = base64.standard_b64encode(image_bytes).decode("ascii")
-    content = [
-        {
+    def _image(data: bytes) -> dict:
+        return {
             "type": "image",
-            "source": {"type": "base64", "media_type": media_type, "data": b64},
-        },
-        {
-            "type": "text",
-            "text": "この画像に写っている名刺をすべて検出し、1枚ずつ cards 配列に振り分けてください。",
-        },
-    ]
+            "source": {"type": "base64", "media_type": media_type,
+                       "data": base64.standard_b64encode(data).decode("ascii")},
+        }
+
+    if back_image_bytes:
+        # 表と裏を1回のリクエストで送る（呼び出し回数を増やさない）
+        content = [
+            {"type": "text", "text": "画像1: 名刺の表面"},
+            _image(image_bytes),
+            {"type": "text", "text": "画像2: 同じ名刺の裏面"},
+            _image(back_image_bytes),
+            {"type": "text", "text": BACK_INSTRUCTION},
+        ]
+    else:
+        content = [
+            _image(image_bytes),
+            {
+                "type": "text",
+                "text": "この画像に写っている名刺をすべて検出し、1枚ずつ cards 配列に振り分けてください。",
+            },
+        ]
 
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=2000,
+            max_tokens=4000,
             thinking={"type": "adaptive"},
             output_config={"effort": "medium", "format": {
                 "type": "json_schema",
-                "schema": EXTRACT_SCHEMA,
+                "schema": _schema(with_back=bool(back_image_bytes)),
             }},
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}],
@@ -170,5 +213,7 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
     for c in cards:
         item = {k: (c.get(k) or "") for k in _CARD_KEYS}
         item["bbox"] = c.get("bbox") if isinstance(c.get("bbox"), dict) else None
+        back = c.get("back_bbox")
+        item["back_bbox"] = back if isinstance(back, dict) else None
         out.append(item)
     return out

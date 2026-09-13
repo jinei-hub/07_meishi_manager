@@ -25,23 +25,25 @@ import json
 import streamlit as st
 
 CAMERA_MARKER = "名刺を撮る"
+BACK_MARKER = "裏面を撮る"
 
 
-def use_rear_camera(marker: str = CAMERA_MARKER) -> None:
-    """ラベルに marker を含む file_uploader を「カメラ直結」にする。"""
+def use_rear_camera(markers: tuple[str, ...] = (CAMERA_MARKER, BACK_MARKER)) -> None:
+    """ラベルにいずれかの marker を含む file_uploader を「カメラ直結」にする。"""
     from streamlit.components.v1 import html
 
     js = """
 <script>
 (function () {
-  var marker = %s;
+  var markers = %s;
   function apply() {
     var doc;
     try { doc = window.parent.document; } catch (e) { return; }
     doc.querySelectorAll('[data-testid="stFileUploader"]').forEach(function (box) {
       var input = box.querySelector('input[type="file"]');
       if (!input) return;
-      if ((box.innerText || '').indexOf(marker) !== -1) {
+      var text = box.innerText || '';
+      if (markers.some(function (m) { return text.indexOf(m) !== -1; })) {
         // environment = 外カメラ。タップで即カメラが全画面で開く
         input.setAttribute('capture', 'environment');
         input.setAttribute('accept', 'image/*');
@@ -60,5 +62,5 @@ def use_rear_camera(marker: str = CAMERA_MARKER) -> None:
   [100, 300, 800, 2000].forEach(function (t) { setTimeout(apply, t); });
 })();
 </script>
-""" % json.dumps(marker)
+""" % json.dumps(list(markers))
     html(js, height=0)

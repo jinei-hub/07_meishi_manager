@@ -6,14 +6,14 @@ import streamlit as st
 from PIL import Image
 
 import config  # noqa: F401
-from camera import CAMERA_MARKER, use_rear_camera
+from camera import BACK_MARKER, CAMERA_MARKER, use_rear_camera
 from theme import apply_theme
 from auth import require_login
 from db.models import FIELDS
 from db.session import init_db
 from ocr.extract import current_model, extract_cards, ExtractError
 from services import cards
-from services.imaging import crop_bbox, probe_size, to_jpeg_bytes
+from services.imaging import crop_bbox, probe_size, stack_vertical, to_jpeg_bytes
 
 st.set_page_config(page_title="名刺管理", page_icon="📇", layout="wide")
 
@@ -39,8 +39,15 @@ cam_file = st.file_uploader(
 lib_file = st.file_uploader(
     "🖼️ 保存済みの画像から選ぶ", type=TYPES, key=f"up_lib_{_round}"
 )
+back_file = st.file_uploader(
+    f"📷 {BACK_MARKER}（任意・裏面にも情報がある名刺だけ）", type=TYPES,
+    key=f"up_back_{_round}",
+)
 use_rear_camera()
-st.caption("「撮る」はタップすると外カメラが全画面で開きます。ピントを合わせてから撮ってください。")
+st.caption(
+    "「撮る」はタップすると外カメラが全画面で開きます。ピントを合わせてから撮ってください。"
+    "裏面を撮るときは、表・裏とも名刺1枚ずつにしてください。"
+)
 
 raw = None
 if cam_file is not None:
@@ -62,6 +69,34 @@ if raw is not None:
 
 jpeg = st.session_state.get("jpeg")
 
+back_raw = back_file.getvalue() if back_file is not None else None
+back_sig = len(back_raw) if back_raw else 0
+if st.session_state.get("_last_back_len", 0) != back_sig:
+    st.session_state["_last_back_len"] = back_sig
+    st.session_state.pop("extracted", None)
+    if back_raw:
+        try:
+            st.session_state["back_jpeg"] = to_jpeg_bytes(back_raw, model=current_model())
+        except Exception as e:
+            st.error(f"裏面の画像を読み込めませんでした: {e}")
+            st.session_state.pop("back_jpeg", None)
+    else:
+        st.session_state.pop("back_jpeg", None)
+back_jpeg = st.session_state.get("back_jpeg")
+
+
+def card_image(data: dict) -> tuple[bytes, bool]:
+    """保存する画像（その人の名刺だけ。裏面があれば表の下に並べる）と、切り出せたか。"""
+    front = crop_bbox(jpeg, data.get("bbox"))
+    ok = front is not None
+    front = front or jpeg
+    if not back_jpeg:
+        return front, ok
+    back = crop_bbox(back_jpeg, data.get("back_bbox"))
+    ok = ok and back is not None
+    return stack_vertical(front, back or back_jpeg), ok
+
+
 # 撮影品質を見せる（低解像度のまま読ませて精度が出ない、を防ぐ）
 if jpeg:
     sw, sh = st.session_state.get("src_size", (0, 0))
@@ -78,10 +113,11 @@ if jpeg:
             st.caption(f"元の画像 {sw}×{sh}px → 送信 {sent[0]}×{sent[1]}px")
 
 if jpeg:
-    if st.button("🔍 読み取る", type="primary", width="stretch"):
+    read_label = "🔍 表と裏を読み取る" if back_jpeg else "🔍 読み取る"
+    if st.button(read_label, type="primary", width="stretch"):
         with st.spinner("AIが名刺を読み取っています…"):
             try:
-                st.session_state["extracted"] = extract_cards(jpeg)
+                st.session_state["extracted"] = extract_cards(jpeg, back_image_bytes=back_jpeg)
             except ExtractError as e:
                 st.error(str(e))
             except Exception as e:
@@ -93,12 +129,17 @@ if jpeg and "extracted" in st.session_state:
 
     col_img, col_fields = st.columns([1, 1])
     with col_img:
-        st.image(jpeg, caption="アップロードした画像", width="stretch")
+        st.image(jpeg, caption="表面" if back_jpeg else "アップロードした画像", width="stretch")
+        if back_jpeg:
+            st.image(back_jpeg, caption="裏面", width="stretch")
     with col_fields:
         if not detected:
             st.warning("名刺を検出できませんでした。別の画像を試すか、手動で入力してください。")
         else:
             st.subheader(f"{len(detected)} 枚の名刺を検出しました")
+            if back_jpeg and len(detected) > 1:
+                st.warning("裏面を使うときは、表・裏とも名刺1枚ずつで撮ってください。"
+                           "複数枚だと表と裏の組み合わせを取り違えるおそれがあります。")
             st.caption("各項目のコピーボタンでコピー / 入力欄で修正できます。")
 
     if detected:
@@ -107,11 +148,11 @@ if jpeg and "extracted" in st.session_state:
             company_txt = data.get("company") or ""
             with st.expander(f"名刺 {i + 1}: {title_txt} / {company_txt}", expanded=(len(detected) == 1)):
                 # 複数枚を1枚の写真で撮っても、保存されるのはその人の名刺だけ
-                crop = crop_bbox(jpeg, data.get("bbox"))
-                if crop:
-                    st.image(crop, caption="この名刺として保存されます", width=320)
-                else:
-                    st.caption("切り出しに失敗したため、写真全体を保存します。")
+                img, ok = card_image(data)
+                caption = "この名刺として保存されます" + ("（上: 表 / 下: 裏）" if back_jpeg else "")
+                st.image(img, caption=caption, width=320)
+                if not ok:
+                    st.caption("一部の切り出しに失敗したため、その面は写真全体を保存します。")
                 for key, label in FIELDS:
                     value = data.get(key, "") or ""
                     st.markdown(f"**{label}**")
@@ -131,13 +172,14 @@ if jpeg and "extracted" in st.session_state:
                 # 全項目が空のカードはスキップ
                 if any((fields.get(k) or "").strip() for k, _ in FIELDS):
                     # その名刺の部分だけを保存する。切り出せなければ写真全体。
-                    crop = crop_bbox(jpeg, detected[i].get("bbox")) or jpeg
-                    cards.create(fields, image_bytes=crop)
+                    img, _ok = card_image(detected[i])
+                    cards.create(fields, image_bytes=img)
                     saved += 1
             st.success(f"{saved} 件を保存しました。「一覧・検索」ページで確認できます。")
             for k in list(st.session_state.keys()):
-                if k.startswith("edit_") or k in ("extracted", "jpeg",
-                                                  "_last_raw_len", "src_size"):
+                if k.startswith("edit_") or k in ("extracted", "jpeg", "back_jpeg",
+                                                  "_last_raw_len", "_last_back_len",
+                                                  "src_size"):
                     st.session_state.pop(k, None)
             # 選択欄も空にする（次の名刺をすぐ撮れるように）
             st.session_state["upload_round"] = _round + 1
