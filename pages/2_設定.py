@@ -5,7 +5,7 @@ import os
 import streamlit as st
 
 import config  # noqa: F401  .env / st.secrets を環境変数へ（最初に実行）
-from auth import REMEMBER_DAYS, is_locked, logout, require_login
+from auth import REMEMBER_DAYS, is_locked, logout, remember_status, require_login
 from db.session import init_db, DATABASE_URL
 from mail import gmail
 from mail.gmail import GmailError
@@ -45,6 +45,15 @@ if is_locked():
         f"このアプリを開くにはパスワードが必要です。"
         f"ログインは最大{REMEMBER_DAYS}日間このブラウザに保持されます。"
     )
+    remembered, days_left = remember_status()
+    if remembered:
+        st.caption(f"✅ ログイン保持: このブラウザで有効（残り約{days_left}日）")
+    else:
+        st.caption(
+            "ログイン保持: このブラウザでは無効。"
+            "ログイン時に「このブラウザに保持する」を外した場合や、"
+            "解除した直後はこの表示になります。"
+        )
     if st.button("🚪 このブラウザのログインを解除"):
         logout()
     st.caption(

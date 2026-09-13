@@ -160,6 +160,20 @@ def require_login() -> None:
     st.stop()
 
 
+def remember_status() -> tuple[bool, int]:
+    """(このブラウザにログインが保持されているか, 残り日数)。
+
+    サーバに Cookie が届いているかを見るので、保持の仕組みが実際に
+    効いているかの確認に使える。
+    """
+    secret = os.getenv("APP_PASSWORD") or ""
+    token = _cookie_from_request()
+    if not token_is_valid(token, secret):
+        return False, 0
+    expiry = int(token.partition(".")[0])
+    return True, max(0, (expiry - int(time.time())) // 86400)
+
+
 def logout() -> None:
     """このブラウザのログインを解除する（Cookie も消す）。"""
     st.session_state.pop(_SESSION_KEY, None)
