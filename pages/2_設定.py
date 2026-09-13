@@ -5,7 +5,8 @@ import os
 import streamlit as st
 
 import config  # noqa: F401  .env / st.secrets を環境変数へ（最初に実行）
-from auth import REMEMBER_DAYS, is_locked, logout, remember_status, require_login
+from auth import (REMEMBER_DAYS, cookie_debug, is_locked, logout,
+                  remember_status, require_login)
 from db.session import init_db, DATABASE_URL
 from mail import gmail
 from mail.gmail import GmailError
@@ -49,11 +50,16 @@ if is_locked():
     if remembered:
         st.caption(f"✅ ログイン保持: このブラウザで有効（残り約{days_left}日）")
     else:
-        st.caption(
-            "ログイン保持: このブラウザでは無効。"
-            "ログイン時に「このブラウザに保持する」を外した場合や、"
-            "解除した直後はこの表示になります。"
-        )
+        n, has_ours = cookie_debug()
+        if n == -1:
+            detail = "この Streamlit では Cookie を読めません"
+        elif n == 0:
+            detail = "Cookie がアプリまで届いていません（Cloud 側で遮断）"
+        elif not has_ours:
+            detail = f"Cookie は {n} 個届いていますが、保持用のものがありません（書き込みに失敗）"
+        else:
+            detail = "保持用 Cookie はありますが、期限切れか署名不一致です"
+        st.caption(f"ログイン保持: 無効 — {detail}")
     if st.button("🚪 このブラウザのログインを解除"):
         logout()
     st.caption(

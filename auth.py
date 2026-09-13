@@ -174,6 +174,20 @@ def remember_status() -> tuple[bool, int]:
     return True, max(0, (expiry - int(time.time())) // 86400)
 
 
+def cookie_debug() -> tuple[int, bool]:
+    """(サーバに届いている Cookie の数, うち自前の Cookie があるか)。
+
+    「保持が効かない」ときの切り分け用:
+      - 数が 0        → Streamlit Cloud が Cookie をアプリまで渡していない
+      - 数>0 だが False → JS が Cookie を書けていない
+    """
+    try:
+        cookies = dict(st.context.cookies)
+    except Exception:  # noqa: BLE001
+        return -1, False
+    return len(cookies), COOKIE_NAME in cookies
+
+
 def logout() -> None:
     """このブラウザのログインを解除する（Cookie も消す）。"""
     st.session_state.pop(_SESSION_KEY, None)
