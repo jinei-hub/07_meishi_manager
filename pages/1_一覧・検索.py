@@ -3,6 +3,7 @@
 import streamlit as st
 
 import config  # noqa: F401
+from theme import apply_theme
 from auth import require_login
 from db.models import FIELDS
 from db.session import init_db
@@ -12,6 +13,7 @@ from services.export import to_csv_bytes, to_vcard_bytes
 
 st.set_page_config(page_title="一覧・検索", page_icon="📋", layout="wide")
 
+apply_theme()
 require_login()
 init_db()
 

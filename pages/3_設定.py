@@ -5,16 +5,17 @@ import os
 import streamlit as st
 
 import config  # noqa: F401  .env / st.secrets を環境変数へ（最初に実行）
-from auth import (REMEMBER_DAYS, cookie_debug, is_locked, logout,
-                  remember_status, require_login)
+from theme import apply_theme
+from auth import is_locked, logout, require_login
 from db.session import init_db, DATABASE_URL
 from mail import gmail
 from mail.gmail import GmailError
 from ocr.extract import DEFAULT_MODEL
-from services import cards, mail_log
+from services import cards
 
 st.set_page_config(page_title="設定", page_icon="⚙️", layout="centered")
 
+apply_theme()
 require_login()
 init_db()
 
@@ -43,24 +44,11 @@ st.subheader("アクセス制限")
 if is_locked():
     st.success("パスワードロック: 有効")
     st.caption(
-        f"このアプリを開くにはパスワードが必要です。"
-        f"ログインは最大{REMEMBER_DAYS}日間このブラウザに保持されます。"
+        "このアプリを開くにはパスワードが必要です。"
+        "ログインはセッションが生きている間だけ保持されます"
+        "（Streamlit Cloud はアプリに Cookie を渡さないため、長期保持はできません）。"
     )
-    remembered, days_left = remember_status()
-    if remembered:
-        st.caption(f"✅ ログイン保持: このブラウザで有効（残り約{days_left}日）")
-    else:
-        n, has_ours = cookie_debug()
-        if n == -1:
-            detail = "この Streamlit では Cookie を読めません"
-        elif n == 0:
-            detail = "Cookie がアプリまで届いていません（Cloud 側で遮断）"
-        elif not has_ours:
-            detail = f"Cookie は {n} 個届いていますが、保持用のものがありません（書き込みに失敗）"
-        else:
-            detail = "保持用 Cookie はありますが、期限切れか署名不一致です"
-        st.caption(f"ログイン保持: 無効 — {detail}")
-    if st.button("🚪 このブラウザのログインを解除"):
+    if st.button("🚪 ログアウト"):
         logout()
     st.caption(
         "端末を紛失した場合は、Secrets の `APP_PASSWORD` を変更してください。"
@@ -92,25 +80,6 @@ if st.button("🔌 Gmail 接続テスト"):
             st.error(f"想定外のエラー: {e}")
         else:
             st.success(f"✅ 接続中: {account}")
-
-st.subheader("お礼メールの下書き履歴")
-rows = mail_log.recent(20)
-if rows:
-    st.dataframe(
-        [
-            {
-                "作成日時": r["created_at_jst"],
-                "宛先": r["to_email"],
-                "パターン": r["pattern_label"],
-                "件名": r["subject"],
-            }
-            for r in rows
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
-else:
-    st.caption("まだ作成した下書きはありません。")
 
 st.subheader("使い方")
 st.markdown(

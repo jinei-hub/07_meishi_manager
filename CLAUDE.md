@@ -20,6 +20,7 @@
 main.py                 エントリ（登録ページ）: streamlit run main.py
 config.py               .env / st.secrets を環境変数へ橋渡し
 auth.py                 アプリ全体のパスワードロック（全ページ先頭で require_login）
+theme.py                会社サイト(dipilot.jp)に寄せた配色・CSS（全ページ先頭で apply_theme）
 ocr/extract.py          画像 → 名刺リスト（Claude Vision、複数枚対応）
 db/models.py            MeishiCard モデル（image=BLOB）・FIELDS（項目キーと日本語ラベル）
 db/session.py           init_db / SessionLocal（SQLite/Postgres両対応）
@@ -33,7 +34,8 @@ mail/gmail.py           OAuth・EmailMessage 組み立て・下書き作成
 mail/ui.py              一覧ページに差し込む UI ブロック（render_mail_section）
 tools/gmail_auth.py     初回OAuth（Macで1回だけ実行）→ refresh_token を出力
 pages/1_一覧・検索.py    一覧/検索/編集/削除/エクスポート + お礼メール下書き
-pages/2_設定.py          APIキー状況・Gmail接続テスト・件数・下書き履歴・使い方
+pages/2_お礼メール履歴.py  下書き作成の履歴（絞り込み・相手ごとの回数）
+pages/3_設定.py          APIキー状況・アクセス制限・Gmail接続テスト・件数・使い方
 data/                   ローカルSQLite用（meishi.db、gitignore）
 DEPLOY.md               クラウド公開手順（Neon + Streamlit Cloud）
 ```
@@ -48,7 +50,7 @@ Gmail を使う場合は `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GMAIL_RE
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env      # ANTHROPIC_API_KEY を記入（02_sns_analyser の値を流用可）
-streamlit run main.py
+streamlit run main.py --server.port 8502   # 8501 は 02_sns_analyser が使う
 ```
 
 ## 環境変数（.env）
@@ -72,18 +74,18 @@ streamlit run main.py
   ページを追加したら忘れずに入れる（`st.set_page_config` の直後）。
 - `auth.py` の突き合わせは必ず bytes で行う。`hmac.compare_digest` は
   非ASCII文字列を受け付けず、日本語のパスワードでクラッシュする。
-- ログイン保持の Cookie に入るのは「有効期限 + その HMAC」だけ。鍵は `APP_PASSWORD`。
-  パスワードそのものは入らず、改ざんすると検証に落ちる。
-  **`APP_PASSWORD` を変えると全端末のログインが即座に無効になる**（端末紛失時の対処）。
-  Cookie の読みは `st.context.cookies`、書きは JS。`st.components.v1.html` は
-  非推奨警告が出るが `st.iframe` では代替できない（理由は auth.py のコメント参照）。
+- **Streamlit Cloud はアプリに Cookie を渡さない**（`st.context.cookies` が常に空。
+  2026-09-13 に実測）。そのため Cookie でログインを長期保持する方式は使えない。
+  保持はサーバ側セッションが生きている間だけで、アプリ再起動で切れる。
+  恒久的に入力を省くなら `st.login()`（OIDC）への移行が必要。
+- `APP_PASSWORD` を変えると全端末のログインが即座に無効になる（端末紛失時の対処）。
 - Streamlit Cloud を private リポジトリで動かすには GitHub の `repo` スコープが要る。
   承認していない状態で private にすると clone に失敗してアプリが落ちる（2026-09-08 に発生）。
-- **`.streamlit/config.toml` はコミットしないこと**（.gitignore 済み）。
-  `port = 8502` はローカルで 02_sns_analyser と衝突させないための設定で、
-  クラウドに持ち込むとそのポートで起動してヘルスチェックに失敗し、
+- **`.streamlit/config.toml` に `port` を書かないこと。** 配色（`[theme]`）を
+  クラウドへ届けるためこのファイルはコミットするが、`port = 8502` を入れると
+  クラウドがそのポートで起動してヘルスチェックに失敗し
   `Oh no. Error running app.` になる（2026-09-09 に発生）。
-  `git add -A` のときに巻き込みやすいので注意する。
+  ローカルで 8502 を使うときは起動時に渡す: `streamlit run main.py --server.port 8502`
 
 ## 設計メモ / 規約
 - 抽出項目（追加時はここを直す）: `db/models.py` の `FIELDS` が唯一の定義源。
@@ -92,6 +94,14 @@ streamlit run main.py
   （`thinking=adaptive` / `output_config` の json_schema / 例外別ハンドリング）。
 - 読み取れない項目は空文字 `""`。値の捏造は system プロンプトで禁止。
 - 画像は API コスト・処理時間のため長辺2000pxに縮小してから送信。
+
+### 見た目（theme.py / .streamlit/config.toml）
+- 配色は会社サイトの実測値。出典は `dipilot-wp/dipilot-theme/assets/css/main.css` の `:root`
+  （`--dp-blue #008afc` / `--dp-navy #1a2b4a` / `--dp-text #324158` / `--dp-bg #f5f5f5`）。
+- **和文に明朝を使わない。** 本家も欧文だけ Cormorant Garamond で、和文は端末標準の
+  ゴシック（和文 Web フォントは数MBで初期表示が遅くなるため）。同じ判断を踏襲する。
+- 大枠の色は `config.toml` の `[theme]`、そこで届かない部分（見出し色・タイトル下の
+  罫線・サイドバーの選択表示）だけ `theme.py` の CSS で補う。
 
 ### お礼メール（mail/）
 - **送信は絶対にしない**。担保は4層:

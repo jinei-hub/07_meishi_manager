@@ -3,6 +3,7 @@
 import streamlit as st
 
 import config  # noqa: F401
+from theme import apply_theme
 from auth import require_login
 from db.models import FIELDS
 from db.session import init_db
@@ -12,6 +13,7 @@ from services.imaging import to_jpeg_bytes
 
 st.set_page_config(page_title="名刺管理", page_icon="📇", layout="wide")
 
+apply_theme()
 require_login()
 
 init_db()

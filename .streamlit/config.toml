@@ -1,0 +1,20 @@
+# 会社サイト（dipilot.jp）の配色。実測値は
+# dipilot-wp/dipilot-theme/assets/css/main.css の :root を参照。
+#
+# ⚠️ このファイルはコミットする（クラウドに配色を届けるため）。
+#    port は書かないこと。書くとクラウドがそのポートで起動して
+#    ヘルスチェックに失敗する（2026-09-09 に発生）。
+#    ローカルで 8502 を使いたいときは起動時に渡す:
+#      streamlit run main.py --server.port 8502
+[theme]
+base = "light"
+primaryColor = "#008afc"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f5f5f5"
+textColor = "#324158"
+linkColor = "#0071cf"
+borderColor = "#e6e6e6"
+dataframeHeaderBackgroundColor = "#f5f5f5"
+baseRadius = "small"
+buttonRadius = "small"
+font = "sans-serif"
