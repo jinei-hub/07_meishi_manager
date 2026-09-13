@@ -6,7 +6,7 @@ import streamlit as st
 
 import config  # noqa: F401  .env / st.secrets を環境変数へ（最初に実行）
 from theme import apply_theme
-from auth import is_locked, logout, require_login
+from auth import REMEMBER_DAYS, is_locked, logout, remember_status, require_login
 from db.session import init_db, DATABASE_URL
 from mail import gmail
 from mail.gmail import GmailError
@@ -43,12 +43,19 @@ st.metric("登録名刺数", cards.count())
 st.subheader("アクセス制限")
 if is_locked():
     st.success("パスワードロック: 有効")
-    st.caption(
-        "このアプリを開くにはパスワードが必要です。"
-        "ログインはセッションが生きている間だけ保持されます"
-        "（Streamlit Cloud はアプリに Cookie を渡さないため、長期保持はできません）。"
-    )
-    if st.button("🚪 ログアウト"):
+    remembered, days_left = remember_status()
+    if remembered:
+        st.caption(
+            f"✅ ログイン保持: 有効（残り約{days_left}日）。"
+            "このURLをホーム画面に追加しておけば、次からパスワード不要で開けます。"
+        )
+        st.caption("⚠️ このURLを渡した相手も期限内は開けます。共有しないでください。")
+    else:
+        st.caption(
+            f"ログイン保持: 無効。ログイン時に「{REMEMBER_DAYS}日間保持する」に"
+            "チェックを入れると、次から入力を省けます。"
+        )
+    if st.button("🚪 ログアウト（この端末の保持も解除）"):
         logout()
     st.caption(
         "端末を紛失した場合は、Secrets の `APP_PASSWORD` を変更してください。"

@@ -30,8 +30,15 @@ st.caption("名刺を撮影またはアップロードすると、AIが項目を
 # 全画面・外カメラ・フル画質で撮れて、ブラウザ内蔵カメラの弱点を全部回避できる。
 TYPES = ["jpg", "jpeg", "png", "heic", "heif", "webp"]
 
-cam_file = st.file_uploader(f"📷 {CAMERA_MARKER}（カメラが開きます）", type=TYPES, key="up_cam")
-lib_file = st.file_uploader("🖼️ 保存済みの画像から選ぶ", type=TYPES, key="up_lib")
+# 保存のたびに番号を繰り上げて、選択欄を新品にする（前の写真を残さない）。
+# file_uploader は session_state から値を消せないため、key を変えるのが確実。
+_round = st.session_state.get("upload_round", 0)
+cam_file = st.file_uploader(
+    f"📷 {CAMERA_MARKER}（カメラが開きます）", type=TYPES, key=f"up_cam_{_round}"
+)
+lib_file = st.file_uploader(
+    "🖼️ 保存済みの画像から選ぶ", type=TYPES, key=f"up_lib_{_round}"
+)
 use_rear_camera()
 st.caption("「撮る」はタップすると外カメラが全画面で開きます。ピントを合わせてから撮ってください。")
 
@@ -121,6 +128,9 @@ if jpeg and "extracted" in st.session_state:
                     saved += 1
             st.success(f"{saved} 件を保存しました。「一覧・検索」ページで確認できます。")
             for k in list(st.session_state.keys()):
-                if k.startswith("edit_") or k in ("extracted", "jpeg", "_last_raw_len"):
+                if k.startswith("edit_") or k in ("extracted", "jpeg",
+                                                  "_last_raw_len", "src_size"):
                     st.session_state.pop(k, None)
+            # 選択欄も空にする（次の名刺をすぐ撮れるように）
+            st.session_state["upload_round"] = _round + 1
             st.rerun()

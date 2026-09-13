@@ -50,7 +50,7 @@ Gmail を使う場合は `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GMAIL_RE
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env      # ANTHROPIC_API_KEY を記入（02_sns_analyser の値を流用可）
-streamlit run main.py --server.port 8502   # 8501 は 02_sns_analyser が使う
+./run.sh     # = streamlit run main.py --server.port 8502（8501 は 02 が使う）
 ```
 
 ## 環境変数（.env）
@@ -75,9 +75,10 @@ streamlit run main.py --server.port 8502   # 8501 は 02_sns_analyser が使う
 - `auth.py` の突き合わせは必ず bytes で行う。`hmac.compare_digest` は
   非ASCII文字列を受け付けず、日本語のパスワードでクラッシュする。
 - **Streamlit Cloud はアプリに Cookie を渡さない**（`st.context.cookies` が常に空。
-  2026-09-13 に実測）。そのため Cookie でログインを長期保持する方式は使えない。
-  保持はサーバ側セッションが生きている間だけで、アプリ再起動で切れる。
-  恒久的に入力を省くなら `st.login()`（OIDC）への移行が必要。
+  2026-09-13 に実測）。そのため Cookie 方式の保持は使えない。
+  代わりに URL のクエリ `?k=` に署名付きトークンを載せている（`auth.py`）。
+  中身は「有効期限 + APP_PASSWORD による HMAC」だけでパスワードは入らない。
+  **このURLを渡した相手は期限内ログインできる**ので、共有端末では保持を外す。
 - `APP_PASSWORD` を変えると全端末のログインが即座に無効になる（端末紛失時の対処）。
 - Streamlit Cloud を private リポジトリで動かすには GitHub の `repo` スコープが要る。
   承認していない状態で private にすると clone に失敗してアプリが落ちる（2026-09-08 に発生）。
@@ -85,7 +86,7 @@ streamlit run main.py --server.port 8502   # 8501 は 02_sns_analyser が使う
   クラウドへ届けるためこのファイルはコミットするが、`port = 8502` を入れると
   クラウドがそのポートで起動してヘルスチェックに失敗し
   `Oh no. Error running app.` になる（2026-09-09 に発生）。
-  ローカルで 8502 を使うときは起動時に渡す: `streamlit run main.py --server.port 8502`
+  ローカルは `./run.sh` を使う（ポート指定入りの起動スクリプト）。
 
 ## 設計メモ / 規約
 - 抽出項目（追加時はここを直す）: `db/models.py` の `FIELDS` が唯一の定義源。
