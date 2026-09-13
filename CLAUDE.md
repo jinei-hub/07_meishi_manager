@@ -93,7 +93,16 @@ streamlit run main.py --server.port 8502   # 8501 は 02_sns_analyser が使う
 - Claude呼び出しは `02_sns_analyser/analysis/report.py` のパターンを踏襲
   （`thinking=adaptive` / `output_config` の json_schema / 例外別ハンドリング）。
 - 読み取れない項目は空文字 `""`。値の捏造は system プロンプトで禁止。
-- 画像は API コスト・処理時間のため長辺2000pxに縮小してから送信。
+- **撮影は端末のカメラアプリを使わせる。** `st.camera_input`（ブラウザ内蔵カメラ）は
+  解像度が低くピントも合わせられず、名刺の小さな文字が潰れる。`st.file_uploader` なら
+  スマホで「写真を撮る」を選べてセンサーの実力で撮れるので、そちらを主動線にしている。
+  内蔵カメラは PC 用に expander へ格納（2026-09-13 に実機で判明）。
+- **送信サイズはモデルの上限に合わせる（長辺 2576px）。** Claude 4.7 以降は
+  高解像度ティアで長辺 2576px / 視覚トークン 4784 まで扱える（それ未満に縮めると
+  自分で解像度を捨てることになる。2000px だった頃はこれで損をしていた）。
+  公式の上限は `services/imaging.py` の `MAX_SIDE` に根拠コメント付きで置いてある。
+- JPEG は `quality=92, subsampling=0`。強い圧縮は文字を潰すと公式ドキュメントも警告している。
+- 低解像度（長辺1200px未満）の画像は、読み取る前に画面で警告する。
 
 ### 見た目（theme.py / .streamlit/config.toml）
 - 配色は会社サイトの実測値。出典は `dipilot-wp/dipilot-theme/assets/css/main.css` の `:root`

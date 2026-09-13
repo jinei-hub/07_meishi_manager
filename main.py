@@ -1,6 +1,9 @@
 """名刺管理アプリ — 登録ページ（エントリ: streamlit run main.py）"""
 
+import io
+
 import streamlit as st
+from PIL import Image
 
 import config  # noqa: F401
 from theme import apply_theme
@@ -9,7 +12,7 @@ from db.models import FIELDS
 from db.session import init_db
 from ocr.extract import extract_cards, ExtractError
 from services import cards
-from services.imaging import to_jpeg_bytes
+from services.imaging import probe_size, to_jpeg_bytes
 
 st.set_page_config(page_title="名刺管理", page_icon="📇", layout="wide")
 
@@ -22,21 +25,28 @@ st.title("📇 名刺を登録")
 st.caption("名刺を撮影またはアップロードすると、AIが項目を読み取り、隣にコピー可能な形で表示します。")
 
 # ── 入力 ───────────────────────────────────────────────
-tab_cam, tab_up = st.tabs(["📷 カメラで撮影", "🖼️ 画像をアップロード"])
-with tab_cam:
+# 端末のカメラアプリを使わせるのが要点。st.camera_input（ブラウザ内蔵カメラ）は
+# 解像度が低く、ピント合わせも効かないので名刺の小さな文字が潰れる。
+# file_uploader ならスマホで「写真を撮る」を選べて、センサーの実力で撮れる。
+up_img = st.file_uploader(
+    "名刺の写真",
+    type=["jpg", "jpeg", "png", "heic", "heif", "webp"],
+    key="upload",
+)
+st.caption(
+    "📱 スマホは上をタップ →「写真を撮る」で端末のカメラが開きます。"
+    "ピントを合わせてから撮ると読み取り精度が上がります。"
+)
+
+with st.expander("💻 ブラウザ内蔵のカメラで撮る（画質は落ちます）"):
+    st.caption("PCのWebカメラ向け。スマホでは上の「写真を撮る」の方がきれいに撮れます。")
     cam_img = st.camera_input("名刺を撮影", key="cam")
-with tab_up:
-    up_img = st.file_uploader(
-        "名刺画像を選択（jpg / png / heic）",
-        type=["jpg", "jpeg", "png", "heic", "heif"],
-        key="upload",
-    )
 
 raw = None
-if cam_img is not None:
-    raw = cam_img.getvalue()
-elif up_img is not None:
+if up_img is not None:
     raw = up_img.getvalue()
+elif cam_img is not None:
+    raw = cam_img.getvalue()
 
 # 画像が変わったら前回の抽出結果をクリア
 if raw is not None:
@@ -44,6 +54,7 @@ if raw is not None:
         st.session_state["_last_raw_len"] = len(raw)
         st.session_state.pop("extracted", None)
         try:
+            st.session_state["src_size"] = probe_size(raw)
             st.session_state["jpeg"] = to_jpeg_bytes(raw)
         except Exception as e:
             st.error(f"画像を読み込めませんでした: {e}")
@@ -51,8 +62,23 @@ if raw is not None:
 
 jpeg = st.session_state.get("jpeg")
 
+# 撮影品質を見せる（低解像度のまま読ませて精度が出ない、を防ぐ）
 if jpeg:
-    if st.button("🔍 読み取る", type="primary"):
+    sw, sh = st.session_state.get("src_size", (0, 0))
+    if sw and sh:
+        long_side = max(sw, sh)
+        sent = Image.open(io.BytesIO(jpeg)).size
+        if long_side < 1200:
+            st.warning(
+                f"この画像は {sw}×{sh}px と小さめです。文字が潰れて読み取り精度が落ちます。"
+                "端末のカメラアプリで撮り直すことをおすすめします。",
+                icon="🔍",
+            )
+        else:
+            st.caption(f"元の画像 {sw}×{sh}px → 送信 {sent[0]}×{sent[1]}px")
+
+if jpeg:
+    if st.button("🔍 読み取る", type="primary", width="stretch"):
         with st.spinner("AIが名刺を読み取っています…"):
             try:
                 st.session_state["extracted"] = extract_cards(jpeg)
@@ -67,7 +93,7 @@ if jpeg and "extracted" in st.session_state:
 
     col_img, col_fields = st.columns([1, 1])
     with col_img:
-        st.image(jpeg, caption="アップロードした画像", use_container_width=True)
+        st.image(jpeg, caption="アップロードした画像", width="stretch")
     with col_fields:
         if not detected:
             st.warning("名刺を検出できませんでした。別の画像を試すか、手動で入力してください。")
