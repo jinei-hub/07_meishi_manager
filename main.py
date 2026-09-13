@@ -46,6 +46,12 @@ cam_img = None
 if st.toggle("💻 ブラウザ内蔵のカメラを使う（画質は落ちます）", key="use_browser_cam"):
     st.caption("PCのWebカメラ向け。スマホでは上の「写真を撮る」の方がきれいに撮れます。")
     cam_img = st.camera_input("名刺を撮影", key="cam")
+    if cam_img is None:
+        st.caption(
+            "「This app would like to use your camera」と出る場合はブラウザの許可待ちです。"
+            "iPhone は 設定アプリ →「Safari」→「カメラ」→「許可」。"
+            "許可したらこのページを再読み込みしてください。"
+        )
 
 raw = None
 if up_img is not None:
