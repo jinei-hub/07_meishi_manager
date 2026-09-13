@@ -80,6 +80,10 @@ cp .env.example .env      # ANTHROPIC_API_KEY を記入（02_sns_analyser の値
   中身は「有効期限 + APP_PASSWORD による HMAC」だけでパスワードは入らない。
   **このURLを渡した相手は期限内ログインできる**ので、共有端末では保持を外す。
 - `APP_PASSWORD` を変えると全端末のログインが即座に無効になる（端末紛失時の対処）。
+- **モジュールとページを同時に更新したら、push 後にアプリを Reboot する。**
+  Streamlit Cloud はページのファイルを入れ替えても、既に読み込んだモジュール
+  （`services/*`, `ocr/*`, `mail/*` など）を古いまま保持することがあり、
+  `ImportError` になる（2026-09-13 に2回発生）。Manage app → ⋮ → Reboot app で直る。
 - Streamlit Cloud を private リポジトリで動かすには GitHub の `repo` スコープが要る。
   承認していない状態で private にすると clone に失敗してアプリが落ちる（2026-09-08 に発生）。
 - **`.streamlit/config.toml` に `port` を書かないこと。** 配色（`[theme]`）を
