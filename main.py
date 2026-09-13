@@ -38,7 +38,12 @@ st.caption(
     "ピントを合わせてから撮ると読み取り精度が上がります。"
 )
 
-with st.expander("💻 ブラウザ内蔵のカメラで撮る（画質は落ちます）"):
+# ⚠️ camera_input を expander の中に置かないこと。
+# expander の中身は畳んだ状態でも画面に読み込まれるため、隠れたまま起動に失敗し、
+# 開いても再試行されない（＝カメラが映らない。2026-09-13 に実機で発生）。
+# toggle なら ON にした時点で初めて表示された状態で読み込まれるので確実に起動する。
+cam_img = None
+if st.toggle("💻 ブラウザ内蔵のカメラを使う（画質は落ちます）", key="use_browser_cam"):
     st.caption("PCのWebカメラ向け。スマホでは上の「写真を撮る」の方がきれいに撮れます。")
     cam_img = st.camera_input("名刺を撮影", key="cam")
 
