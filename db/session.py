@@ -12,6 +12,9 @@ def _normalize_db_url(raw: str | None) -> str:
     - 前後の空白・引用符を除去
     - Neonが表示する `psql '...'` 形式のコマンドラッパーを剥がす
     - SQLAlchemy 2.0 が受け付けない `postgres://` を `postgresql://` に補正
+    - ドライバ未指定なら psycopg2 を明示する。SQLAlchemy 2.1 で `postgresql://` の
+      既定ドライバが psycopg(v3) に変わり、psycopg2-binary しか入れていない
+      クラウドが ModuleNotFoundError で落ちた（2026-09-26 に発生）
     """
     if not raw:
         return "sqlite:///data/meishi.db"
@@ -20,6 +23,8 @@ def _normalize_db_url(raw: str | None) -> str:
         url = url[len("psql "):].strip().strip("'").strip('"').strip()
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg2://" + url[len("postgresql://"):]
     return url or "sqlite:///data/meishi.db"
 
 

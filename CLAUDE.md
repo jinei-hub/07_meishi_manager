@@ -84,6 +84,11 @@ cp .env.example .env      # ANTHROPIC_API_KEY を記入（02_sns_analyser の値
   Streamlit Cloud はページのファイルを入れ替えても、既に読み込んだモジュール
   （`services/*`, `ocr/*`, `mail/*` など）を古いまま保持することがあり、
   `ImportError` になる（2026-09-13 に2回発生）。Manage app → ⋮ → Reboot app で直る。
+- **Streamlit Cloud はスリープ明け等で依存を最新版で入れ直す。** `>=` だけの指定だと
+  上流のメジャー変更をそのまま踏む。SQLAlchemy 2.1（2026-09-24）で `postgresql://` の
+  既定ドライバが psycopg(v3) に変わり、`ModuleNotFoundError: psycopg` で落ちた
+  （2026-09-26）。`db/session.py` でドライバを `postgresql+psycopg2://` に明示し、
+  requirements で `sqlalchemy<2.2` に上限を付けて対処済み。
 - Streamlit Cloud を private リポジトリで動かすには GitHub の `repo` スコープが要る。
   承認していない状態で private にすると clone に失敗してアプリが落ちる（2026-09-08 に発生）。
 - **`.streamlit/config.toml` に `port` を書かないこと。** 配色（`[theme]`）を
