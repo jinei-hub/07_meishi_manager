@@ -1,0 +1,15 @@
+# 依存の更新は週1回・1本の PR にまとめて出させる（本数が多いと見なくなるため）。
+# PR には smoke ワークフローが走るので、緑なら Merge → アプリを Reboot。
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    groups:
+      all-deps:
+        patterns: ["*"]
+    open-pull-requests-limit: 2

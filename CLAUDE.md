@@ -87,8 +87,14 @@ cp .env.example .env      # ANTHROPIC_API_KEY を記入（02_sns_analyser の値
 - **Streamlit Cloud はスリープ明け等で依存を最新版で入れ直す。** `>=` だけの指定だと
   上流のメジャー変更をそのまま踏む。SQLAlchemy 2.1（2026-09-24）で `postgresql://` の
   既定ドライバが psycopg(v3) に変わり、`ModuleNotFoundError: psycopg` で落ちた
-  （2026-09-26）。`db/session.py` でドライバを `postgresql+psycopg2://` に明示し、
-  requirements で `sqlalchemy<2.2` に上限を付けて対処済み。
+  （2026-09-26）。`db/session.py` でドライバを `postgresql+psycopg2://` に明示した。
+- **再発防止: 依存は全部 `==` で固定している**（`requirements.txt` は pip freeze、
+  Python 3.14 で解決）。`>=` に戻さないこと。更新の流れ:
+  1. Dependabot が毎週月曜に1本の PR にまとめて出す（`.github/dependabot.yml`）
+  2. PR で `.github/workflows/smoke.yml` が `tests/smoke_test.py` を実行
+     （Postgres ドライバ解決・全モジュール import・全ページを AppTest で1回実行。外部接続なし）
+  3. 緑なら Merge → アプリを Reboot。赤なら Merge しない（本番は古い固定のまま動き続ける）
+  ページやモジュールを足したら `tests/smoke_test.py` の import 一覧にも足す（ページは自動で拾う）。
 - Streamlit Cloud を private リポジトリで動かすには GitHub の `repo` スコープが要る。
   承認していない状態で private にすると clone に失敗してアプリが落ちる（2026-09-08 に発生）。
 - **`.streamlit/config.toml` に `port` を書かないこと。** 配色（`[theme]`）を

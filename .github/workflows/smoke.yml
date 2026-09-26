@@ -1,0 +1,25 @@
+# 起動スモークテスト。依存の更新（Dependabot の PR）で本番が落ちないかを事前に確かめる。
+# Python はクラウド（Streamlit Community Cloud）と同じ 3.14 に揃える。
+name: smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python tests/smoke_test.py
