@@ -60,7 +60,8 @@ def thumb(card_id: int) -> bytes | None:
     if not raw:
         return None
     try:
-        return thumbnail_bytes(raw)
+        # 名刺比率(91:55)の枠に収める。行ごとに高さがぶれないようにする。
+        return thumbnail_bytes(raw, width=180, height=110)
     except Exception:
         return None
 
@@ -139,9 +140,10 @@ c_cnt, c_tgl, c_sort, c_per, c_csv, c_vcf = st.columns(
 with c_tgl:
     # 既定オフ。画像はDBに原寸(0.5〜3MB)で入っており、一覧で何枚も読むと
     # 無料枠では開くのに時間がかかる（2026-10-07に本番の一覧が開けなくなった）。
-    show_images = st.toggle("名刺画像", value=False, key="show_images",
+    show_images = st.toggle("名刺画像", value=True, key="show_images",
                             help="一覧に名刺のサムネイルを出します。"
-                                 "無料枠では読み込みに時間がかかるため既定はオフです。")
+                                 "Reboot直後の初回だけ読み込みに時間がかかります。"
+                                 "待てないときはオフにしてください。")
 with c_sort:
     sort_how = st.selectbox("並び替え", SORT_OPTIONS, key="sort")
 with c_per:

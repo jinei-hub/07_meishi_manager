@@ -29,6 +29,12 @@ SYSTEM_PROMPT = (
     "x は右へ、y は下へ増える。x1,y1 が左上の角、x2,y2 が右下の角。"
     "名刺の紙の外周にぴったり合わせ、他の名刺や背景を含めないこと。"
     "名刺が1枚だけの場合もその1枚の外周を返すこと。"
+    "加えて quad に名刺の四隅を入れること。bbox と違い軸に平行な矩形ではなく、"
+    "傾いて写っていても紙の実際の角（カドの点）を指すこと。"
+    "順序は必ず 左上→右上→右下→左下。"
+    "ここでの『左上』は、その名刺の文字が正しく読める向きに見たときの左上とすること"
+    "（名刺が横倒しや上下逆に写っていても、文字が正立する向きを基準にする）。"
+    "紙の角が画像の外にはみ出している場合は、はみ出した先の角の位置を推定して返すこと。"
 )
 
 _CARD_PROPS = {
@@ -62,6 +68,27 @@ _BBOX_PROP = {
     "additionalProperties": False,
 }
 
+# 名刺の四隅。bbox が軸平行の矩形なのに対し、こちらは傾いた紙の角そのもの。
+# 台形補正（services/imaging.py の crop_quad）で正面から見た長方形に起こすのに使う。
+# 「左上」を文字が正立する向きで返させているので、横倒しに撮った名刺も
+# 補正と同時に正しい向きになる。
+_POINT_PROP = {
+    "type": "object",
+    "properties": {
+        "x": {"type": "integer", "description": "x 座標（左が0、右へ増える）"},
+        "y": {"type": "integer", "description": "y 座標（上が0、下へ増える）"},
+    },
+    "required": ["x", "y"],
+    "additionalProperties": False,
+}
+_QUAD_PROP = {
+    "type": "array",
+    "description": "名刺の四隅。左上→右上→右下→左下（文字が正立する向きを基準）",
+    "items": _POINT_PROP,
+    "minItems": 4,
+    "maxItems": 4,
+}
+
 # 構造化出力スキーマ（additionalProperties:false 必須）: 複数名刺に対応
 EXTRACT_SCHEMA = {
     "type": "object",
@@ -71,8 +98,8 @@ EXTRACT_SCHEMA = {
             "description": "検出した名刺（画像内の枚数分）",
             "items": {
                 "type": "object",
-                "properties": {**_CARD_PROPS, "bbox": _BBOX_PROP},
-                "required": _CARD_KEYS + ["bbox"],
+                "properties": {**_CARD_PROPS, "bbox": _BBOX_PROP, "quad": _QUAD_PROP},
+                "required": _CARD_KEYS + ["bbox", "quad"],
                 "additionalProperties": False,
             },
         },
@@ -96,6 +123,7 @@ BACK_INSTRUCTION = (
     "同じ項目が両面にあって表記が違う場合（日本語と英語など）は日本語表記を採用すること。"
     "bbox は画像1（表面）での名刺の位置、back_bbox は画像2（裏面）での名刺の位置を、"
     "それぞれの画像自身のピクセル座標で返すこと。"
+    "quad / back_quad も同様に、それぞれの画像での四隅を返すこと。"
 )
 
 
@@ -109,8 +137,9 @@ def _schema(with_back: bool) -> dict:
         **EXTRACT_SCHEMA,
         "properties": {"cards": {**cards, "items": {
             **item,
-            "properties": {**item["properties"], "back_bbox": _BBOX_PROP},
-            "required": item["required"] + ["back_bbox"],
+            "properties": {**item["properties"],
+                           "back_bbox": _BBOX_PROP, "back_quad": _QUAD_PROP},
+            "required": item["required"] + ["back_bbox", "back_quad"],
         }}},
     }
 

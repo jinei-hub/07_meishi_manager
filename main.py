@@ -13,7 +13,8 @@ from db.models import FIELDS
 from db.session import init_db
 from ocr.extract import current_model, extract_cards, ExtractError
 from services import cards
-from services.imaging import crop_bbox, probe_size, stack_vertical, to_jpeg_bytes
+from services.imaging import (crop_bbox, crop_quad, probe_size,
+                              stack_vertical, to_jpeg_bytes)
 
 st.set_page_config(page_title="名刺管理", page_icon=PAGE_ICON, layout="wide")
 
@@ -87,12 +88,15 @@ back_jpeg = st.session_state.get("back_jpeg")
 
 def card_image(data: dict) -> tuple[bytes, bool]:
     """保存する画像（その人の名刺だけ。裏面があれば表の下に並べる）と、切り出せたか。"""
-    front = crop_bbox(jpeg, data.get("bbox"))
+    # 四隅からの台形補正を優先する。斜めから撮っても真っ直ぐになり、
+    # 横倒しに撮った名刺も正しい向きになる。四隅が怪しいときは従来の bbox に落とす。
+    front = crop_quad(jpeg, data.get("quad")) or crop_bbox(jpeg, data.get("bbox"))
     ok = front is not None
     front = front or jpeg
     if not back_jpeg:
         return front, ok
-    back = crop_bbox(back_jpeg, data.get("back_bbox"))
+    back = (crop_quad(back_jpeg, data.get("back_quad"))
+            or crop_bbox(back_jpeg, data.get("back_bbox")))
     ok = ok and back is not None
     return stack_vertical(front, back or back_jpeg), ok
 
