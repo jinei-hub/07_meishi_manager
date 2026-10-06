@@ -95,6 +95,12 @@ cp .env.example .env      # ANTHROPIC_API_KEY を記入（02_sns_analyser の値
      （Postgres ドライバ解決・全モジュール import・全ページを AppTest で1回実行。外部接続なし）
   3. 緑なら Merge → アプリを Reboot。赤なら Merge しない（本番は古い固定のまま動き続ける）
   ページやモジュールを足したら `tests/smoke_test.py` の import 一覧にも足す（ページは自動で拾う）。
+- **Reboot は修正を適用する操作ではなく、依存を入れ直す操作。** GitHub の現在の内容で
+  ビルドし直すだけなので、未 push のまま押しても何も変わらない。むしろ `>=` 指定のままだと
+  Reboot のたびにその時点の最新版を踏む（上の SQLAlchemy の事故と同じ経路）。
+  依存を固定したコミット（`136a9a1`、2026-09-26）は push されておらず、本番は `>=` のまま
+  動いていた（2026-10-06 に発覚。約10日間、再発防止が効いていなかった）。
+  **Reboot の前に `git rev-list --count origin/main..HEAD` が 0 か確かめる。**
 - Streamlit Cloud を private リポジトリで動かすには GitHub の `repo` スコープが要る。
   承認していない状態で private にすると clone に失敗してアプリが落ちる（2026-09-08 に発生）。
 - **`.streamlit/config.toml` に `port` を書かないこと。** 配色（`[theme]`）を
