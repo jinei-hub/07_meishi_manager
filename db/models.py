@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Integer, Text, DateTime, LargeBinary
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, deferred, column_property
 from datetime import datetime
 
 Base = declarative_base()
@@ -25,7 +25,11 @@ class MeishiCard(Base):
     __tablename__ = "meishi_cards"
 
     id          = Column(Integer, primary_key=True, autoincrement=True)
-    image       = Column(LargeBinary)  # 名刺画像(JPEG bytes)をDBに保存（クラウドでも消えない）
+    # 名刺画像(JPEG bytes)をDBに保存（クラウドでも消えない）。
+    # deferred: 既定では SELECT に含めない。一覧/検索は全件を一度に引くため、
+    # 通常の列にすると全名刺のJPEGがDBから転送され、無料枠の時間とメモリを食う。
+    # 本体が要るのは詳細表示だけで、そこは cards.get_image(id) が明示的に読む。
+    image       = deferred(Column(LargeBinary))
 
     name        = Column(String, default="")
     company     = Column(String, default="")
@@ -44,12 +48,19 @@ class MeishiCard(Base):
     updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def as_dict(self) -> dict:
-        # 画像(blob)は重いので含めない。画像は cards.get_image(id) で取得する。
-        d = {"id": self.id, "has_image": self.image is not None, "memo": self.memo or ""}
+        # 画像(blob)は含めない。画像は cards.get_image(id) で取得する。
+        # has_image は下の column_property がSQL側で判定した真偽値で、
+        # self.image に触らない（触ると deferred が1件ずつ読み込みに行く）。
+        d = {"id": self.id, "has_image": bool(self.has_image), "memo": self.memo or ""}
         for key, _label in FIELDS:
             d[key] = getattr(self, key) or ""
         d["created_at"] = self.created_at
         return d
+
+
+# 「画像があるか」はDB側で判定させる。image 本体を転送せずに真偽値だけ受け取るため、
+# deferred を解除せずに済む。クラス定義後に足すのは image 列を参照する必要があるから。
+MeishiCard.has_image = column_property(MeishiCard.__table__.c.image.isnot(None))
 
 
 class MailDraftLog(Base):
