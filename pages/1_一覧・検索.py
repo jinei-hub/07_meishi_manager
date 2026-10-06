@@ -134,12 +134,18 @@ if not results:
     st.stop()
 
 # ── 件数・並び替え・エクスポート ────────────────────────
-c_cnt, c_sort, c_per, c_csv, c_vcf = st.columns([3, 2, 1.4, 1.2, 1.2],
-                                                vertical_alignment="bottom")
+c_cnt, c_tgl, c_sort, c_per, c_csv, c_vcf = st.columns(
+    [2.2, 1.7, 2, 1.3, 1.2, 1.2], vertical_alignment="bottom")
+with c_tgl:
+    # 既定オフ。画像はDBに原寸(0.5〜3MB)で入っており、一覧で何枚も読むと
+    # 無料枠では開くのに時間がかかる（2026-10-07に本番の一覧が開けなくなった）。
+    show_images = st.toggle("名刺画像", value=False, key="show_images",
+                            help="一覧に名刺のサムネイルを出します。"
+                                 "無料枠では読み込みに時間がかかるため既定はオフです。")
 with c_sort:
     sort_how = st.selectbox("並び替え", SORT_OPTIONS, key="sort")
 with c_per:
-    per_page = st.selectbox("表示件数", PER_PAGE_OPTIONS, index=1, key="per_page")
+    per_page = st.selectbox("表示件数", PER_PAGE_OPTIONS, index=0, key="per_page")
 with c_csv:
     st.download_button("⬇️ CSV", data=to_csv_bytes(results), file_name="meishi.csv",
                        mime="text/csv", width="stretch")
@@ -163,15 +169,19 @@ with c_cnt:
 # ── 一覧（1件=1行のカード） ─────────────────────────────
 for card_row in rows[start:end]:
     with st.container(border=True):
-        c_img, c_main, c_date, c_act = st.columns([1.1, 5, 1.1, 1.1],
-                                                  vertical_alignment="center")
-
-        with c_img:
-            image = thumb(card_row["id"]) if card_row["has_image"] else None
-            if image:
-                st.image(image, width="stretch")
-            else:
-                st.markdown('<div class="dp-noimg">画像なし</div>', unsafe_allow_html=True)
+        if show_images:
+            c_img, c_main, c_date, c_act = st.columns([1.1, 5, 1.1, 1.1],
+                                                      vertical_alignment="center")
+            with c_img:
+                image = thumb(card_row["id"]) if card_row["has_image"] else None
+                if image:
+                    st.image(image, width="stretch")
+                else:
+                    st.markdown('<div class="dp-noimg">画像なし</div>',
+                                unsafe_allow_html=True)
+        else:
+            c_main, c_date, c_act = st.columns([6.1, 1.1, 1.1],
+                                               vertical_alignment="center")
 
         with c_main:
             role = " ／ ".join(p for p in (card_row["department"], card_row["title"]) if p)

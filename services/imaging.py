@@ -170,6 +170,12 @@ def thumbnail_bytes(jpeg: bytes, width: int = 160) -> bytes:
     一覧で文字を読む必要はないので quality は低めでよい。
     """
     img = Image.open(io.BytesIO(jpeg))
+    # JPEG は draft() を使うと「間引きながらデコード」できる（1/2・1/4・1/8）。
+    # 等倍でデコードしてから縮小すると、Streamlit Cloud 無料枠の弱いCPU
+    # （最小 0.078 コア）では1枚に数百ms〜秒かかり、一覧が開けなくなる
+    # （2026-10-07 に本番で発生）。先に小さく読むと桁で速くなる。
+    # draft は load 前にしか効かず、JPEG以外では黙って無視される。
+    img.draft("RGB", (width, width))
     if img.mode != "RGB":
         img = img.convert("RGB")
     if img.width > width:
