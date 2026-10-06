@@ -15,7 +15,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
+
+# ロゴは会社サイト（dipilot-wp/dipilot-theme/assets/images/logo.png）と同じもの。
+# このリポジトリは公開されているが、ロゴは会社サイトに出ている公開物なので置いてよい。
+ASSETS = Path(__file__).resolve().parent / "assets"
+LOGO = ASSETS / "logo.png"            # 横長のロゴ（サイドバー上部）
+LOGO_MARK = ASSETS / "logo-mark.png"  # マークのみ（サイドバーを畳んだとき）
+SITE = "https://dipilot.jp/"
+
+# ブラウザのタブに出すアイコン。サイドバーのナビはファイル名で表示されるため、
+# ここを変えてもページの並びの見え方は変わらない（タブだけがDiPilotになる）。
+PAGE_ICON = str(LOGO_MARK) if LOGO_MARK.is_file() else "📇"
 
 BLUE = "#008afc"
 BLUE_DARK = "#0071cf"
@@ -94,6 +107,23 @@ _CSS = f"""
   .dp-count {{ font-size: .85rem; color: {MUTED}; padding-top: .35rem; }}
   .dp-count b {{ color: {NAVY}; font-size: 1.1rem; }}
 
+  /* サイドバー下部の社名。どのページでも会社名が目に入るようにする */
+  .dp-foot {{
+    margin-top: 1.2rem; padding-top: .9rem; border-top: 1px solid {BORDER};
+    font-size: .74rem; color: {MUTED}; line-height: 1.7;
+  }}
+  .dp-foot b {{ color: {NAVY}; font-size: .84rem; font-weight: 700; }}
+  .dp-foot a {{ color: {BLUE_DARK}; text-decoration: none; }}
+  .dp-foot a:hover {{ text-decoration: underline; }}
+
+  /* 枠付きコンテナ（一覧の行・検索パネル）はホバーでブランドカラーに寄せる */
+  [data-testid="stVerticalBlockBorderWrapper"]:hover {{
+    border-color: rgba(0, 138, 252, .45);
+  }}
+
+  /* 折りたたみ見出しもホバーでブランドカラーに */
+  [data-testid="stExpander"] summary:hover {{ color: {BLUE_DARK}; }}
+
   /* 名刺画像は角を丸めて枠を付け、紙の名刺らしく見せる */
   [data-testid="stImage"] img {{ border-radius: 4px; border: 1px solid {BORDER}; }}
 </style>
@@ -101,5 +131,23 @@ _CSS = f"""
 
 
 def apply_theme() -> None:
-    """全ページの先頭（set_page_config の直後）で呼ぶ。"""
+    """全ページの先頭（set_page_config の直後）で呼ぶ。
+
+    配色の CSS に加えて、会社ロゴとサイドバー下部の社名を出す。
+    ロゴが見つからない場合も画面は出す（アプリが開けない方が困るため）。
+    """
     st.markdown(_CSS, unsafe_allow_html=True)
+
+    if LOGO.is_file():
+        st.logo(
+            str(LOGO),
+            size="large",
+            link=SITE,
+            icon_image=str(LOGO_MARK) if LOGO_MARK.is_file() else None,
+        )
+
+    st.sidebar.markdown(
+        '<div class="dp-foot">名刺管理<br><b>株式会社DiPilot</b><br>'
+        f'<a href="{SITE}" target="_blank" rel="noopener">dipilot.jp</a></div>',
+        unsafe_allow_html=True,
+    )

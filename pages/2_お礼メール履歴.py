@@ -11,9 +11,9 @@ from auth import require_login
 from db.session import init_db
 from mail import gmail, templates
 from services import cards, mail_log
-from theme import apply_theme
+from theme import apply_theme, PAGE_ICON
 
-st.set_page_config(page_title="お礼メール履歴", page_icon="✉️", layout="wide")
+st.set_page_config(page_title="お礼メール履歴", page_icon=PAGE_ICON, layout="wide")
 
 apply_theme()
 require_login()

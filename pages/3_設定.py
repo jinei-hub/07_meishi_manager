@@ -5,7 +5,7 @@ import os
 import streamlit as st
 
 import config  # noqa: F401  .env / st.secrets を環境変数へ（最初に実行）
-from theme import apply_theme
+from theme import apply_theme, PAGE_ICON
 from auth import REMEMBER_DAYS, is_locked, logout, remember_status, require_login
 from db.session import init_db, DATABASE_URL
 from mail import gmail
@@ -13,7 +13,7 @@ from mail.gmail import GmailError
 from ocr.extract import DEFAULT_MODEL
 from services import cards
 
-st.set_page_config(page_title="設定", page_icon="⚙️", layout="centered")
+st.set_page_config(page_title="設定", page_icon=PAGE_ICON, layout="centered")
 
 apply_theme()
 require_login()

@@ -7,7 +7,7 @@ from PIL import Image
 
 import config  # noqa: F401
 from camera import BACK_MARKER, CAMERA_MARKER, use_rear_camera
-from theme import apply_theme
+from theme import apply_theme, PAGE_ICON
 from auth import require_login
 from db.models import FIELDS
 from db.session import init_db
@@ -15,7 +15,7 @@ from ocr.extract import current_model, extract_cards, ExtractError
 from services import cards
 from services.imaging import crop_bbox, probe_size, stack_vertical, to_jpeg_bytes
 
-st.set_page_config(page_title="名刺管理", page_icon="📇", layout="wide")
+st.set_page_config(page_title="名刺管理", page_icon=PAGE_ICON, layout="wide")
 
 apply_theme()
 require_login()
