@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 
 from db.models import MeishiCard, FIELDS
 from db.session import SessionLocal
@@ -39,18 +39,35 @@ def list_all() -> list[dict]:
         db.close()
 
 
-def search(query: str) -> list[dict]:
-    """氏名/会社/メール等を横断してLIKE検索。空クエリは全件。"""
+def search(query: str = "", filters: dict | None = None) -> list[dict]:
+    """横断検索と項目別検索を組み合わせて返す。両方空なら全件。
+
+    query   … SEARCHABLE 全体への OR 検索（キーワード1本で広く拾う）
+    filters … {列名: 文字列} の項目別検索。指定した項目は AND で効く
+              （会社名が「A」かつ役職が「部長」のような絞り込み）
+
+    列名は SEARCHABLE に無いものを無視する。画面から来た文字列を
+    getattr に通すため、ここで弾かないと任意の属性を触れてしまう。
+    """
     q = (query or "").strip()
-    if not q:
+    conds = []
+    if q:
+        like = f"%{q}%"
+        conds.append(or_(*[getattr(MeishiCard, c).ilike(like) for c in SEARCHABLE]))
+    for col, raw in (filters or {}).items():
+        value = (raw or "").strip()
+        if not value or col not in SEARCHABLE:
+            continue
+        conds.append(getattr(MeishiCard, col).ilike(f"%{value}%"))
+
+    if not conds:
         return list_all()
+
     db = SessionLocal()
     try:
-        like = f"%{q}%"
-        conds = [getattr(MeishiCard, col).ilike(like) for col in SEARCHABLE]
         rows = (
             db.query(MeishiCard)
-            .filter(or_(*conds))
+            .filter(and_(*conds))
             .order_by(MeishiCard.created_at.desc())
             .all()
         )

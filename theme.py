@@ -10,7 +10,7 @@
 
 ■ 配色の大枠は .streamlit/config.toml の [theme] で指定する
   こちらはそれだけでは届かない部分（見出しの色、タイトル下の罫線、
-  サイドバーの見え方）を CSS で補う。
+  サイドバーの見え方、一覧の名刺カード行）を CSS で補う。
 """
 
 from __future__ import annotations
@@ -22,7 +22,9 @@ BLUE_DARK = "#0071cf"
 NAVY = "#1a2b4a"
 TEXT = "#324158"
 GRAY = "#8a8a8a"
+MUTED = "#6b7a90"
 BG = "#f5f5f5"
+BORDER = "#e6e6e6"
 
 _CSS = f"""
 <style>
@@ -56,7 +58,44 @@ _CSS = f"""
   }}
 
   /* 区切り線は本家と同じ薄さに */
-  hr {{ border-color: #e6e6e6; }}
+  hr {{ border-color: {BORDER}; }}
+
+  /* ── 一覧の名刺カード行 ──────────────────────────────
+     Sansan の一覧に寄せる: 会社名を小さく青、氏名を大きく濃く、
+     連絡先と住所はアイコン付きで淡く。視線が氏名→連絡先の順に流れるようにする。 */
+  .dp-company {{
+    font-size: .8rem; font-weight: 600; color: {BLUE_DARK};
+    overflow-wrap: anywhere;
+  }}
+  .dp-name {{
+    font-size: 1.08rem; font-weight: 700; color: {NAVY};
+    margin: .1rem 0 .15rem; overflow-wrap: anywhere;
+  }}
+  .dp-role {{ font-size: .82rem; color: {TEXT}; overflow-wrap: anywhere; }}
+  .dp-meta {{
+    font-size: .8rem; color: {MUTED}; margin-top: .35rem;
+    display: flex; flex-wrap: wrap; gap: .2rem 1.1rem;
+  }}
+  .dp-meta span {{ overflow-wrap: anywhere; }}
+  .dp-empty {{ color: #bfbfbf; }}
+
+  /* 登録日（Sansan の「名刺交換日」にあたる位置） */
+  .dp-date {{ font-size: .72rem; color: {MUTED}; line-height: 1.5; text-align: right; }}
+  .dp-date b {{ font-size: .85rem; color: {TEXT}; font-weight: 600; }}
+
+  /* 画像が無い名刺のプレースホルダ（行の高さを揃えて一覧のガタつきを防ぐ） */
+  .dp-noimg {{
+    display: flex; align-items: center; justify-content: center;
+    height: 72px; border: 1px dashed {BORDER}; border-radius: 4px;
+    color: #bfbfbf; font-size: .72rem; background: {BG};
+  }}
+
+  /* 一覧の上に出す結果件数 */
+  .dp-count {{ font-size: .85rem; color: {MUTED}; padding-top: .35rem; }}
+  .dp-count b {{ color: {NAVY}; font-size: 1.1rem; }}
+
+  /* 名刺画像は角を丸めて枠を付け、紙の名刺らしく見せる */
+  [data-testid="stImage"] img {{ border-radius: 4px; border: 1px solid {BORDER}; }}
 </style>
 """
 

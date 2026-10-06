@@ -160,3 +160,21 @@ def stack_vertical(top: bytes, bottom: bytes, gap: int = 24) -> bytes:
     canvas.paste(a, (0, 0))
     canvas.paste(b, (0, a.height + gap))
     return _encode(canvas)
+
+
+def thumbnail_bytes(jpeg: bytes, width: int = 160) -> bytes:
+    """一覧に並べる小さな JPEG を作る。
+
+    保存してある画像は Claude に読ませる解像度（長辺2000px超）のままなので、
+    一覧に何十枚も並べると表示も転送も重い。幅を揃えて軽くする。
+    一覧で文字を読む必要はないので quality は低めでよい。
+    """
+    img = Image.open(io.BytesIO(jpeg))
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    if img.width > width:
+        height = max(1, round(img.height * width / img.width))
+        img = img.resize((width, height), Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=75)
+    return out.getvalue()
