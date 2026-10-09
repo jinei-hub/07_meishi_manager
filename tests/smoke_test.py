@@ -64,6 +64,55 @@ for mod in (
 ):
     check(f"import {mod}", lambda m=mod: importlib.import_module(m))
 
+# 2.5 抽出スキーマが structured outputs(json_schema) で通る形か。
+#     minItems/maxItems などはサポート外で、書くとAPIにスキーマごと弾かれる。
+#     ここが落ちると名刺を1枚も読めなくなるので、外部接続なしで形だけ確かめる。
+UNSUPPORTED_SCHEMA_KEYS = {
+    "minItems", "maxItems", "minLength", "maxLength",
+    "minimum", "maximum", "pattern", "format", "default",
+}
+
+
+def _schema_keywords():
+    from ocr.extract import EXTRACT_SCHEMA, _schema
+
+    def walk(node, path="$"):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in UNSUPPORTED_SCHEMA_KEYS:
+                    raise AssertionError(f"{path} に未対応キーワード {key}")
+                if key == "additionalProperties" and value is not False:
+                    raise AssertionError(f"{path} の additionalProperties は False 固定")
+                walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                walk(value, f"{path}[{i}]")
+
+    walk(EXTRACT_SCHEMA, "EXTRACT_SCHEMA")
+    walk(_schema(with_back=True), "schema(裏面あり)")
+
+
+check("抽出スキーマに未対応キーワードが無い", _schema_keywords)
+
+
+# 2.6 抽出結果の正規化が bbox / quad を落とさないか。
+#     ここで足し忘れると、エラーも出ないまま切り抜きだけ効かなくなる。
+def _extract_keys():
+    import ocr.extract as ex
+
+    for with_back in (False, True):
+        item = ex._schema(with_back=with_back)["properties"]["cards"]["items"]
+        for key in (["bbox", "quad"] + (["back_bbox", "back_quad"] if with_back else [])):
+            assert key in item["properties"], f"スキーマに {key} が無い"
+            assert key in item["required"], f"{key} が required に無い"
+    src = (ROOT / "ocr" / "extract.py").read_text()
+    for key in ("bbox", "quad", "back_bbox", "back_quad"):
+        assert f'item["{key}"]' in src, f"返り値に {key} を詰めていない"
+
+
+check("抽出結果に bbox / quad を詰めている", _extract_keys)
+
+
 # 3. 各ページを Streamlit の中で実際に1回実行する。
 #    APP_PASSWORD があるのでログイン画面で止まるが、ページ冒頭の import は全部通る。
 def _run_page(path: str):

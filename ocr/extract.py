@@ -81,12 +81,14 @@ _POINT_PROP = {
     "required": ["x", "y"],
     "additionalProperties": False,
 }
+# minItems/maxItems は structured outputs(json_schema) では使えない。
+# 書くとスキーマ検証で弾かれうるので、個数の制約は description で伝え、
+# 実際の個数は crop_quad 側で確かめる（4点でなければ bbox に落ちる）。
 _QUAD_PROP = {
     "type": "array",
-    "description": "名刺の四隅。左上→右上→右下→左下（文字が正立する向きを基準）",
+    "description": ("名刺の四隅。必ず4点を、左上→右上→右下→左下の順で返すこと"
+                    "（文字が正立する向きを基準）"),
     "items": _POINT_PROP,
-    "minItems": 4,
-    "maxItems": 4,
 }
 
 # 構造化出力スキーマ（additionalProperties:false 必須）: 複数名刺に対応
@@ -156,9 +158,9 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
 
     Returns:
         [{name, company, department, title, phone, fax, mobile,
-          email, website, postal_code, address, bbox}, ...]  （検出した枚数分）
-        bbox は {x1,y1,x2,y2} のピクセル座標（取得できなければ None）
-        back_image_bytes を渡すと表裏を1人分に統合し、back_bbox（裏面での位置）も返す
+          email, website, postal_code, address, bbox, quad}, ...]  （検出した枚数分）
+        bbox は {x1,y1,x2,y2}、quad は [{x,y} x4] のピクセル座標（取得できなければ None）
+        back_image_bytes を渡すと表裏を1人分に統合し、back_bbox / back_quad も返す
     Raises:
         ExtractError: APIキー未設定・認証失敗・通信エラー・応答パース失敗など。
     """
@@ -244,5 +246,10 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
         item["bbox"] = c.get("bbox") if isinstance(c.get("bbox"), dict) else None
         back = c.get("back_bbox")
         item["back_bbox"] = back if isinstance(back, dict) else None
+        # 四隅も渡す。ここに足し忘れると main.py の crop_quad が常に None を受け取り、
+        # エラーも出ないまま台形補正が効かなくなる（2026-10-07 にやった）。
+        item["quad"] = c.get("quad") if isinstance(c.get("quad"), list) else None
+        bq = c.get("back_quad")
+        item["back_quad"] = bq if isinstance(bq, list) else None
         out.append(item)
     return out
