@@ -86,19 +86,53 @@ if st.session_state.get("_last_back_len", 0) != back_sig:
 back_jpeg = st.session_state.get("back_jpeg")
 
 
-def card_image(data: dict) -> tuple[bytes, bool]:
-    """保存する画像（その人の名刺だけ。裏面があれば表の下に並べる）と、切り出せたか。"""
-    # 四隅からの台形補正を優先する。斜めから撮っても真っ直ぐになり、
-    # 横倒しに撮った名刺も正しい向きになる。四隅が怪しいときは従来の bbox に落とす。
-    front = crop_quad(jpeg, data.get("quad")) or crop_bbox(jpeg, data.get("bbox"))
-    ok = front is not None
-    front = front or jpeg
+def _one_side(src: bytes, quad, bbox) -> tuple[bytes, str]:
+    """片面を切り出し、(画像, 使った方式) を返す。方式は画面の診断に出す。
+
+    台形補正を優先する。斜めから撮っても真っ直ぐになり、横倒しに撮った名刺も
+    正しい向きになる。四隅が信用できないときだけ従来の bbox に落とす。
+    """
+    detail: dict = {}
+    out = crop_quad(src, quad, detail=detail)
+    if out is not None:
+        snapped = "紙の縁に吸着" if detail.get("refined") else "読み取りの四隅のまま（縁を見つけられず）"
+        return out, f"四隅から台形補正 / {snapped}"
+    out = crop_bbox(src, bbox)
+    if out is not None:
+        return out, "bbox で切り出し（四隅は使えず）"
+    return src, "切り出せず写真全体"
+
+
+def card_image(data: dict) -> tuple[bytes, bool, list[str]]:
+    """保存する画像（その人の名刺だけ。裏面があれば表の下に並べる）と、切り出せたか。
+
+    3つめは「表はこの方式」という説明の一覧で、画面の診断表示にだけ使う。
+    どの経路を通ったか分からないと、切り出しが効かないときに原因を追えない。
+    """
+    front, how = _one_side(jpeg, data.get("quad"), data.get("bbox"))
+    ways = [f"表: {how}"]
+    ok = not how.startswith("切り出せず")
     if not back_jpeg:
-        return front, ok
-    back = (crop_quad(back_jpeg, data.get("back_quad"))
-            or crop_bbox(back_jpeg, data.get("back_bbox")))
-    ok = ok and back is not None
-    return stack_vertical(front, back or back_jpeg), ok
+        return front, ok, ways
+    back, how_b = _one_side(back_jpeg, data.get("back_quad"), data.get("back_bbox"))
+    ways.append(f"裏: {how_b}")
+    ok = ok and not how_b.startswith("切り出せず")
+    return stack_vertical(front, back), ok, ways
+
+
+def crop_diagnosis(data: dict, ways: list[str]) -> None:
+    """切り出しの内訳を折りたたんで出す。読み取り結果の生の座標も見せる。"""
+    with st.expander("切り出しの詳細（うまくいかないときに開く）"):
+        for line in ways:
+            st.markdown(f"- {line}")
+        src = Image.open(io.BytesIO(jpeg)).size
+        st.caption(f"読み取りに送った画像: {src[0]}×{src[1]}px")
+        for key in ("quad", "bbox", "back_quad", "back_bbox"):
+            value = data.get(key)
+            if value is None and key.startswith("back") and not back_jpeg:
+                continue
+            st.markdown(f"**{key}**")
+            st.code("（返ってこなかった）" if value is None else repr(value), language=None)
 
 
 # 撮影品質を見せる（低解像度のまま読ませて精度が出ない、を防ぐ）
@@ -152,11 +186,12 @@ if jpeg and "extracted" in st.session_state:
             company_txt = data.get("company") or ""
             with st.expander(f"名刺 {i + 1}: {title_txt} / {company_txt}", expanded=(len(detected) == 1)):
                 # 複数枚を1枚の写真で撮っても、保存されるのはその人の名刺だけ
-                img, ok = card_image(data)
+                img, ok, ways = card_image(data)
                 caption = "この名刺として保存されます" + ("（上: 表 / 下: 裏）" if back_jpeg else "")
                 st.image(img, caption=caption, width=320)
                 if not ok:
                     st.caption("一部の切り出しに失敗したため、その面は写真全体を保存します。")
+                crop_diagnosis(data, ways)
                 for key, label in FIELDS:
                     value = data.get(key, "") or ""
                     st.markdown(f"**{label}**")
@@ -176,7 +211,7 @@ if jpeg and "extracted" in st.session_state:
                 # 全項目が空のカードはスキップ
                 if any((fields.get(k) or "").strip() for k, _ in FIELDS):
                     # その名刺の部分だけを保存する。切り出せなければ写真全体。
-                    img, _ok = card_image(detected[i])
+                    img, _ok, _ways = card_image(detected[i])
                     cards.create(fields, image_bytes=img)
                     saved += 1
             st.success(f"{saved} 件を保存しました。「一覧・検索」ページで確認できます。")
