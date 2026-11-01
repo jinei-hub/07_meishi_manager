@@ -244,27 +244,10 @@ _REFINE_PAD = 0.10
 # 四隅より内側をどれだけ探すか。読み取りの四隅は紙より1割以上大きいことがある
 # （2026-10-23 に実機で下に約1割の机が残った）。狭いと縁が範囲外になり、吸着を
 # 諦めて机ごと保存してしまう。
-_REFINE_INNER = 0.18
+_REFINE_INNER = 0.20
 # 縁を探すための下見用画像の最大幅。小さくしても縁の位置は充分に出るので、
 # 本番の解像度で探さずに済ませて速くする。
-_PROBE_WIDTH = 900
-
-
-def _feasible_pad(size: tuple[int, int], corners, want: float = _REFINE_PAD) -> float:
-    """画像からはみ出さずに広げられる割合を返す。余白を取れなければ 0。
-
-    名刺が写真の端ギリギリに写っていると広げられない。その場合に無理をすると
-    画像の外（黒）を紙の縁と誤認するので、素直に補正を諦める。
-    """
-    w, h = size
-    cx = sum(x for x, _ in corners) / 4
-    cy = sum(y for _, y in corners) / 4
-    limit = 1.0 + 2 * want
-    for x, y in corners:
-        for delta, room in ((x - cx, w - cx), (cx - x, cx), (y - cy, h - cy), (cy - y, cy)):
-            if delta > 0:
-                limit = min(limit, room / delta)
-    return max(0.0, min(want, (limit - 1.0) / 2))
+_PROBE_WIDTH = 640
 
 
 def _bilinear(quad, u: float, v: float) -> tuple[float, float]:
@@ -284,10 +267,7 @@ def _refined_corners(img: Image.Image, corners, width: int, height: int):
     交点を四隅にする」。読み取りのズレで残る傾きまで取れるのが、軸に平行な
     枠で詰めるだけの方法との違い。
     """
-    pad = _feasible_pad(img.size, corners)
-    if pad < 0.02:  # 余白が取れない＝紙の外が見えないので縁を探せない
-        return None
-
+    pad = _REFINE_PAD
     scale = 1.0 + 2 * pad
     cx = sum(x for x, _ in corners) / 4
     cy = sum(y for _, y in corners) / 4
@@ -301,7 +281,11 @@ def _refined_corners(img: Image.Image, corners, width: int, height: int):
     btl, btr, bbr, bbl = big
     probe = img.transform((pw, ph), Image.QUAD, (*btl, *bbl, *bbr, *btr), Image.BICUBIC)
 
-    uv = _snap_quad(probe, pad)
+    # 名刺が写真の端に寄っていると、広げた範囲は写真の外に出る。そこは紙ではない
+    # 印を付けて探す。諦めると、写真いっぱいに撮った名刺で机や隣の名刺が残る。
+    shot = Image.new("L", img.size, 255).transform(
+        (pw, ph), Image.QUAD, (*btl, *bbl, *bbr, *btr), Image.NEAREST)
+    uv = _snap_quad(probe, pad, np.asarray(shot) > 0)
     if uv is None:
         return None
     found = [_bilinear(big, u, v) for u, v in uv]
@@ -312,65 +296,133 @@ def _refined_corners(img: Image.Image, corners, width: int, height: int):
             return None
     new_w = max(_dist(found[0], found[1]), _dist(found[3], found[2]))
     new_h = max(_dist(found[0], found[3]), _dist(found[1], found[2]))
-    if not (0.80 * width <= new_w <= 1.25 * width and 0.80 * height <= new_h <= 1.25 * height):
+    if not (0.65 * width <= new_w <= 1.25 * width and 0.65 * height <= new_h <= 1.25 * height):
         return None
     return found
 
 
-def _paper_by_color(rgb: "np.ndarray", edge: int):
+def _otsu(values: "np.ndarray") -> float | None:
+    """値を2つの山に分ける閾値（大津の方法）。ほぼ一色で分けられなければ None。"""
+    lo, hi = float(values.min()), float(values.max())
+    if hi - lo < 1e-6:
+        return None
+    counts, edges = np.histogram(values, bins=64, range=(lo, hi))
+    weight = np.cumsum(counts, dtype=np.float64)
+    centers = (edges[:-1] + edges[1:]) / 2
+    mass = np.cumsum(counts * centers, dtype=np.float64)
+    below, above = weight[:-1], weight[-1] - weight[:-1]
+    usable = (below > 0) & (above > 0)
+    if not usable.any():
+        return None
+    between = np.zeros_like(below)
+    between[usable] = (below[usable] * above[usable]
+                       * (mass[:-1][usable] / below[usable]
+                          - (mass[-1] - mass[:-1][usable]) / above[usable]) ** 2)
+    return float(edges[1:][int(between.argmax())])
+
+
+def _paper_by_color(rgb: "np.ndarray", shot: "np.ndarray"):
     """色味で紙を見分ける。机と色味が同じなら None。
 
     影は明るさを大きく変えても色味はあまり変えない。明るさの閾値だと、影の中の紙を
     机と取り違える（2026-10-23 に実機で発生）。r/b の比率で比べれば影に引きずられない。
+    外周をそのまま平均すると、隣の名刺が写っているときに紙の色を机と誤認するので
+    （2026-11-01 に実機で発生）、外周を2色に分けて紙から遠い方を机とする。
     """
     total = rgb.sum(axis=2) + 30.0   # 暗い画素で比率が暴れないよう底上げする
     r, b = rgb[..., 0] / total, rgb[..., 2] / total
     h, w = r.shape
-
-    def ring(ch: "np.ndarray") -> "np.ndarray":
-        return np.concatenate([ch[:edge, :].ravel(), ch[-edge:, :].ravel(),
-                               ch[:, :edge].ravel(), ch[:, -edge:].ravel()])
-
+    mid = (slice(int(h * 0.3), int(h * 0.7)), slice(int(w * 0.3), int(w * 0.7)))
+    # 暗い画素の色味はノイズで、黒い机を紙と誤認する（2026-11-01 に実機で発生）。
+    # 影の中の紙は明るさ6割ほどなので、それより十分暗いものだけ紙の候補から外す。
+    # ただし色がはっきりしていれば残す（影の中にある紺の帯などを切り落とさない）。
+    gray = rgb.mean(axis=2)
+    bright = (gray > float(np.median(gray[mid])) * 0.35) | (rgb.max(axis=2) - rgb.min(axis=2) > 40)
+    # 机の色は外周の帯だけから決める。全体から決めると、名刺の中の濃い色帯を机と誤認する。
+    edge = max(2, int(min(h, w) * 0.07))
+    outer = np.ones((h, w), dtype=bool)
+    outer[edge:-edge, edge:-edge] = False
+    usable = outer & shot & bright
+    if usable.sum() < outer.sum() * 0.02:
+        return None
+    from_paper = np.hypot(r - float(np.median(r[mid])), b - float(np.median(b[mid])))
+    cut = _otsu(from_paper[usable])
+    if cut is None:
+        return None
+    desk = usable & (from_paper > cut)
+    if desk.sum() < outer.sum() * 0.02:
+        return None
     # 「紙の色に近い」ではなく「机の色から遠い」で判定する。逆にすると、端に色帯の
     # ある名刺で帯を机とみなして切り落としてしまう。
-    mid = (slice(int(h * 0.3), int(h * 0.7)), slice(int(w * 0.3), int(w * 0.7)))
-    desk_r, desk_b = float(np.median(ring(r))), float(np.median(ring(b)))
+    desk_r, desk_b = float(np.median(r[desk])), float(np.median(b[desk]))
     gap = float(np.hypot(float(np.median(r[mid])) - desk_r,
                          float(np.median(b[mid])) - desk_b))
     if gap < 0.03:
         return None
-    return np.hypot(r - desk_r, b - desk_b) > gap / 2
+    return bright & (np.hypot(r - desk_r, b - desk_b) > gap / 2)
 
 
-def _paper_by_brightness(rgb: "np.ndarray", edge: int):
+def _paper_by_brightness(rgb: "np.ndarray", shot: "np.ndarray"):
     """明るさで紙を見分ける。白い机に白い名刺など、差が無ければ None。"""
     gray = rgb @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
     h, w = gray.shape
     center = float(gray[int(h * 0.3):int(h * 0.7), int(w * 0.3):int(w * 0.7)].mean())
-    border = float(np.concatenate([
-        gray[:edge, :].ravel(), gray[-edge:, :].ravel(),
-        gray[:, :edge].ravel(), gray[:, -edge:].ravel(),
-    ]).mean())
-    if abs(center - border) < 12.0:  # 縁が見えない
+    level = _otsu(gray[shot])
+    if level is None:
         return None
-    level = (center + border) / 2
-    return gray >= level if center > border else gray <= level
+    other = gray[shot & (gray < level)] if center > level else gray[shot & (gray >= level)]
+    if other.size < gray.size * 0.02 or abs(center - float(other.mean())) < 12.0:  # 縁が見えない
+        return None
+    return gray >= level if center > level else gray < level
 
 
-def _snap_quad(probe: Image.Image, pad: float):
+def _card_region(paper: "np.ndarray") -> "np.ndarray":
+    """中央の紙とつながった領域だけを残す。隣に写った名刺はここで消える。
+
+    1枚の写真に複数枚を並べると、外から走査したときに隣の名刺へ先に当たる。
+    行ごとに numpy で伝播させるので、下見画像なら1画素ずつ辿るより桁で速い。
+    """
+    # 色帯と紙の境目には1〜2画素の判定漏れが出て、帯が中央から切り離される。
+    # 隣の名刺との隙間より十分細い途切れだけ埋める。
+    mask = Image.fromarray(paper.astype(np.uint8) * 255)
+    paper = np.asarray(mask.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(5))) > 0
+    h, w = paper.shape
+    reach = np.zeros_like(paper)
+    box = (slice(int(h * 0.4), int(h * 0.6)), slice(int(w * 0.4), int(w * 0.6)))
+    reach[box] = paper[box]
+
+    def spread(y: int, near: "np.ndarray") -> None:
+        row = paper[y]
+        ids = np.cumsum(~row)            # 紙が連続する区間は同じ番号になる
+        touched = np.zeros(int(ids[-1]) + 1, dtype=bool)
+        touched[ids[row & (near | reach[y])]] = True
+        reach[y] = row & touched[ids]
+
+    for _ in range(8):                   # 回り込む形でも数往復で収束する
+        before = int(reach.sum())
+        for y in range(1, h):
+            spread(y, reach[y - 1])
+        for y in range(h - 2, -1, -1):
+            spread(y, reach[y + 1])
+        if int(reach.sum()) == before:
+            break
+    return reach
+
+
+def _snap_quad(probe: Image.Image, pad: float, shot: "np.ndarray"):
     """下見画像から紙の四隅を探し、0〜1 の相対座標で返す。無理なら None。
 
-    まず色味で探し、机と色味が同じ（黒い机に白い名刺など）なら明るさで探す。
-    どちらでも差が無ければ None を返し、呼び出し側が読み取りの四隅をそのまま使う。
+    shot は写真の内側なら True のマスク。まず色味で探し、机と色味が同じ（黒い机に
+    白い名刺など）なら明るさで探す。どちらでも見つからなければ None を返し、
+    呼び出し側が読み取りの四隅をそのまま使う。
     """
     rgb = np.asarray(probe.convert("RGB").filter(ImageFilter.GaussianBlur(1.5)),
                      dtype=np.float32)
-    edge = max(1, int(min(rgb.shape[:2]) * 0.03))
     for find_paper in (_paper_by_color, _paper_by_brightness):
-        paper = find_paper(rgb, edge)
+        paper = find_paper(rgb, shot)
         if paper is None:
             continue
-        corners = _trace_edges(paper, pad)
+        corners = _trace_edges(_card_region(paper & shot), pad)
         if corners is not None:
             return corners
     return None
@@ -395,6 +447,10 @@ def _trace_edges(paper: "np.ndarray", pad: float):
             if hit is not None:
                 samples.append((i, hit))
         if len(samples) < 15:                   # 6割も縁を拾えないなら信用しない
+            return None
+        # 走査の開始点からもう紙なら、紙の外を見ていない（隣の名刺とくっついている等）
+        start = 0.0 if side in ("left", "top") else float(across - 1)
+        if sum(hit == start for _, hit in samples) > len(samples) / 2:
             return None
         line = _fit_line(samples)
         if line is None:

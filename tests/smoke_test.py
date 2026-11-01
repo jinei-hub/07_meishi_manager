@@ -265,6 +265,35 @@ def _quad_shadow():
 check("影と木目があっても机を残さない", _quad_shadow)
 
 
+# 2.95 黒い机に複数枚を並べ、写真いっぱいに撮った場面。実写で机と隣の名刺が残った。
+def _quad_neighbors():
+    import numpy as np
+    from PIL import Image
+
+    from services.imaging import _encode, crop_quad
+
+    w, h, cw, ch = 1400, 1000, 1000, 600
+    rng = np.random.default_rng(0)
+    base = np.clip(rng.normal(30, 18, (h, w, 1)), 0, 255).repeat(3, axis=2)
+    paper = (235, 228, 205)
+    x0, y0 = 60, 20                              # 目的の名刺は写真の左上の端に近い
+    base[y0:y0 + ch, x0:x0 + cw] = paper
+    base[y0:y0 + ch, x0 + cw + 40:] = paper      # 右隣の名刺
+    base[y0 + ch + 40:, :] = paper               # 下の名刺
+    jpeg = _encode(Image.fromarray(base.astype(np.uint8)))
+
+    quad = [{"x": 10, "y": 2}, {"x": x0 + cw + 110, "y": 2},
+            {"x": x0 + cw + 110, "y": y0 + ch + 90}, {"x": 10, "y": y0 + ch + 90}]
+    detail: dict = {}
+    out = Image.open(io.BytesIO(crop_quad(jpeg, quad, detail=detail)))
+    assert detail.get("refined"), "縁に吸着できなかった"
+    assert abs(out.width - cw) <= cw * 0.015, f"幅が合わない: {out.width}"
+    assert abs(out.height - ch) <= ch * 0.015, f"高さが合わない: {out.height}"
+
+
+check("隣の名刺と黒い机を残さない", _quad_neighbors)
+
+
 # 2.10 四隅の順序が狂っていても text_up で正立する。実写で横向きのまま保存された。
 def _text_up():
     from services.imaging import _orient_quad
