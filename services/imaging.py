@@ -17,7 +17,7 @@ import io
 import math
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 try:
     import pillow_heif
@@ -140,8 +140,56 @@ def crop_bbox(jpeg: bytes, bbox: dict, margin: float = 0.04) -> bytes | None:
 
 
 
+def _up_vector(text_up) -> tuple[float, float] | None:
+    return {"top": (0.0, -1.0), "right": (1.0, 0.0),
+            "bottom": (0.0, 1.0), "left": (-1.0, 0.0)}.get(text_up)
+
+
+def _orient_quad(quad, text_up):
+    """四隅の順序を、text_up（文字の上が写真のどちらか）に合わせて並べ直す。
+
+    読み取りは四隅の位置は返せても、横倒しの名刺で「どの角が左上か」を取り違える
+    ことがある（2026-10-23 に実機で発生。横向きのまま保存された）。向きは別の項目で
+    答えさせ、順序はこちらで決める。text_up が使えなければ quad をそのまま返す。
+    """
+    up = _up_vector(text_up)
+    if up is None or not isinstance(quad, (list, tuple)) or len(quad) != 4:
+        return quad
+    try:
+        pts = [(float(p["x"]), float(p["y"])) for p in quad]
+    except (KeyError, TypeError, ValueError):
+        return quad
+
+    area = sum(pts[i][0] * pts[(i + 1) % 4][1] - pts[(i + 1) % 4][0] * pts[i][1]
+               for i in range(4))
+    order = list(quad)
+    if area < 0:                    # 反時計回りなら時計回りに直す（鏡像にしない）
+        order = [order[0], order[3], order[2], order[1]]
+        pts = [pts[0], pts[3], pts[2], pts[1]]
+
+    def agreement(start: int) -> float:
+        """start を左上としたときの「上辺の外向き」と up の一致度（1が完全一致）。"""
+        (ax, ay), (bx, by) = pts[start], pts[(start + 1) % 4]
+        length = _dist((ax, ay), (bx, by)) or 1.0
+        return ((by - ay) * up[0] - (bx - ax) * up[1]) / length
+
+    # 45度に置いた名刺は text_up が2方向のどちらとも言えるので、読み取りの順序が
+    # text_up と矛盾しない（ずれが約53度以内）ならそちらを優先する。
+    best = 0 if agreement(0) >= 0.6 else max(range(4), key=agreement)
+    return order[best:] + order[:best]
+
+
+def rotate_upright(jpeg: bytes, text_up) -> bytes:
+    """文字の上が写真の text_up 側にある画像を正立させる（bbox 切り出し用）。"""
+    angle = {"right": 90, "bottom": 180, "left": 270}.get(text_up)
+    if angle is None:
+        return jpeg
+    img = Image.open(io.BytesIO(jpeg))
+    return _encode(img.rotate(angle, expand=True))
+
+
 def crop_quad(jpeg: bytes, quad, margin: float = 0.01, refine: bool = True,
-              detail: dict | None = None) -> bytes | None:
+              detail: dict | None = None, text_up: str | None = None) -> bytes | None:
     """名刺の四隅から、正面から見た長方形を起こす（台形補正）。使えなければ None。
 
     quad は ocr/extract.py が返す [{x,y} x4] で、名刺の文字が正立する向きでの
@@ -158,8 +206,10 @@ def crop_quad(jpeg: bytes, quad, margin: float = 0.01, refine: bool = True,
 
     detail に dict を渡すと、縁に吸着できたかを "refined" に入れて返す。
     画面の診断表示用。どちらを通ったか分からないと切り出しの不具合を追えない。
+
+    text_up は文字の上が写真のどちら側か。渡すと四隅の順序をこれに合わせて直す。
     """
-    points = _quad_points(jpeg, quad, margin)
+    points = _quad_points(jpeg, _orient_quad(quad, text_up), margin)
     if points is None:
         return None
     img, corners = points
@@ -190,7 +240,11 @@ def crop_quad(jpeg: bytes, quad, margin: float = 0.01, refine: bool = True,
 
 # 紙の外側をどれだけ余分に見るか（名刺の寸法に対する割合、片側）。
 # 読み取りが返す四隅のズレがこの範囲に収まっていれば縁を拾い直せる。
-_REFINE_PAD = 0.08
+_REFINE_PAD = 0.10
+# 四隅より内側をどれだけ探すか。読み取りの四隅は紙より1割以上大きいことがある
+# （2026-10-23 に実機で下に約1割の机が残った）。狭いと縁が範囲外になり、吸着を
+# 諦めて机ごと保存してしまう。
+_REFINE_INNER = 0.18
 # 縁を探すための下見用画像の最大幅。小さくしても縁の位置は充分に出るので、
 # 本番の解像度で探さずに済ませて速くする。
 _PROBE_WIDTH = 900
@@ -263,15 +317,35 @@ def _refined_corners(img: Image.Image, corners, width: int, height: int):
     return found
 
 
-def _snap_quad(probe: Image.Image, pad: float):
-    """下見画像から紙の四隅を探し、0〜1 の相対座標で返す。無理なら None。
+def _paper_by_color(rgb: "np.ndarray", edge: int):
+    """色味で紙を見分ける。机と色味が同じなら None。
 
-    紙と机の明るさの差を手がかりにする。差が無い（白い机に白い名刺など）場合は
-    None を返し、呼び出し側が読み取りの四隅をそのまま使う。
+    影は明るさを大きく変えても色味はあまり変えない。明るさの閾値だと、影の中の紙を
+    机と取り違える（2026-10-23 に実機で発生）。r/b の比率で比べれば影に引きずられない。
     """
-    gray = np.asarray(probe.convert("L"), dtype=np.float32)
+    total = rgb.sum(axis=2) + 30.0   # 暗い画素で比率が暴れないよう底上げする
+    r, b = rgb[..., 0] / total, rgb[..., 2] / total
+    h, w = r.shape
+
+    def ring(ch: "np.ndarray") -> "np.ndarray":
+        return np.concatenate([ch[:edge, :].ravel(), ch[-edge:, :].ravel(),
+                               ch[:, :edge].ravel(), ch[:, -edge:].ravel()])
+
+    # 「紙の色に近い」ではなく「机の色から遠い」で判定する。逆にすると、端に色帯の
+    # ある名刺で帯を机とみなして切り落としてしまう。
+    mid = (slice(int(h * 0.3), int(h * 0.7)), slice(int(w * 0.3), int(w * 0.7)))
+    desk_r, desk_b = float(np.median(ring(r))), float(np.median(ring(b)))
+    gap = float(np.hypot(float(np.median(r[mid])) - desk_r,
+                         float(np.median(b[mid])) - desk_b))
+    if gap < 0.03:
+        return None
+    return np.hypot(r - desk_r, b - desk_b) > gap / 2
+
+
+def _paper_by_brightness(rgb: "np.ndarray", edge: int):
+    """明るさで紙を見分ける。白い机に白い名刺など、差が無ければ None。"""
+    gray = rgb @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
     h, w = gray.shape
-    edge = max(1, int(min(w, h) * 0.03))
     center = float(gray[int(h * 0.3):int(h * 0.7), int(w * 0.3):int(w * 0.7)].mean())
     border = float(np.concatenate([
         gray[:edge, :].ravel(), gray[-edge:, :].ravel(),
@@ -280,8 +354,31 @@ def _snap_quad(probe: Image.Image, pad: float):
     if abs(center - border) < 12.0:  # 縁が見えない
         return None
     level = (center + border) / 2
-    bright_inside = center > border
+    return gray >= level if center > border else gray <= level
 
+
+def _snap_quad(probe: Image.Image, pad: float):
+    """下見画像から紙の四隅を探し、0〜1 の相対座標で返す。無理なら None。
+
+    まず色味で探し、机と色味が同じ（黒い机に白い名刺など）なら明るさで探す。
+    どちらでも差が無ければ None を返し、呼び出し側が読み取りの四隅をそのまま使う。
+    """
+    rgb = np.asarray(probe.convert("RGB").filter(ImageFilter.GaussianBlur(1.5)),
+                     dtype=np.float32)
+    edge = max(1, int(min(rgb.shape[:2]) * 0.03))
+    for find_paper in (_paper_by_color, _paper_by_brightness):
+        paper = find_paper(rgb, edge)
+        if paper is None:
+            continue
+        corners = _trace_edges(paper, pad)
+        if corners is not None:
+            return corners
+    return None
+
+
+def _trace_edges(paper: "np.ndarray", pad: float):
+    """紙の画素マスクから四辺をなぞり、四隅を返す。なぞれなければ None。"""
+    h, w = paper.shape
     # 四辺それぞれ。left/right は x 方向に、top/bottom は y 方向に走査する。
     # 走査は必ず外側から始める（紙の内側の印刷より先に紙の縁に当たるように）。
     lines = {}
@@ -289,12 +386,12 @@ def _snap_quad(probe: Image.Image, pad: float):
         vertical = side in ("left", "right")
         along = h if vertical else w            # 縁に沿う方向の長さ
         across = w if vertical else h           # 縁を横切る方向の長さ
-        band = max(4, int(across * 2 * pad / (1 + 2 * pad)))
+        band = max(4, int(across * (pad + _REFINE_INNER) / (1 + 2 * pad)))
         samples = []
         for t in np.linspace(0.18, 0.82, 25):   # 角の近くは外して真ん中だけ見る
             i = int(round(t * (along - 1)))
-            strip = gray[i, :] if vertical else gray[:, i]
-            hit = _cross(strip, band, level, bright_inside, from_start=side in ("left", "top"))
+            strip = paper[i, :] if vertical else paper[:, i]
+            hit = _cross(strip, band, from_start=side in ("left", "top"))
             if hit is not None:
                 samples.append((i, hit))
         if len(samples) < 15:                   # 6割も縁を拾えないなら信用しない
@@ -323,12 +420,11 @@ def _snap_quad(probe: Image.Image, pad: float):
     return corners
 
 
-def _cross(strip: "np.ndarray", band: int, level: float, bright_inside: bool, from_start: bool):
-    """1本の走査線で、外側から見て最初に明るさが紙の側へ切り替わる位置を返す。"""
+def _cross(strip: "np.ndarray", band: int, from_start: bool):
+    """1本の走査線で、外側から見て最初に紙へ切り替わる位置を返す。"""
     n = len(strip)
     band = min(band, n)
-    seg = strip[:band] if from_start else strip[n - band:][::-1]
-    inside = seg >= level if bright_inside else seg <= level
+    inside = strip[:band] if from_start else strip[n - band:][::-1]
     # ノイズ1画素で決めない。3画素続けて紙側になった最初の点を縁とみなす。
     run = np.convolve(inside.astype(np.float32), np.ones(3, np.float32), mode="valid")
     idx = np.flatnonzero(run >= 3)

@@ -13,7 +13,7 @@ from db.models import FIELDS
 from db.session import init_db
 from ocr.extract import current_model, extract_cards, ExtractError
 from services import cards
-from services.imaging import (crop_bbox, crop_quad, probe_size,
+from services.imaging import (crop_bbox, crop_quad, probe_size, rotate_upright,
                               stack_vertical, to_jpeg_bytes)
 
 st.set_page_config(page_title="名刺管理", page_icon=PAGE_ICON, layout="wide")
@@ -86,21 +86,21 @@ if st.session_state.get("_last_back_len", 0) != back_sig:
 back_jpeg = st.session_state.get("back_jpeg")
 
 
-def _one_side(src: bytes, quad, bbox) -> tuple[bytes, str]:
+def _one_side(src: bytes, quad, bbox, text_up) -> tuple[bytes, str]:
     """片面を切り出し、(画像, 使った方式) を返す。方式は画面の診断に出す。
 
     台形補正を優先する。斜めから撮っても真っ直ぐになり、横倒しに撮った名刺も
     正しい向きになる。四隅が信用できないときだけ従来の bbox に落とす。
     """
     detail: dict = {}
-    out = crop_quad(src, quad, detail=detail)
+    out = crop_quad(src, quad, detail=detail, text_up=text_up)
     if out is not None:
         snapped = "紙の縁に吸着" if detail.get("refined") else "読み取りの四隅のまま（縁を見つけられず）"
         return out, f"四隅から台形補正 / {snapped}"
     out = crop_bbox(src, bbox)
     if out is not None:
-        return out, "bbox で切り出し（四隅は使えず）"
-    return src, "切り出せず写真全体"
+        return rotate_upright(out, text_up), "bbox で切り出し（四隅は使えず）"
+    return rotate_upright(src, text_up), "切り出せず写真全体"
 
 
 def card_image(data: dict) -> tuple[bytes, bool, list[str]]:
@@ -109,12 +109,13 @@ def card_image(data: dict) -> tuple[bytes, bool, list[str]]:
     3つめは「表はこの方式」という説明の一覧で、画面の診断表示にだけ使う。
     どの経路を通ったか分からないと、切り出しが効かないときに原因を追えない。
     """
-    front, how = _one_side(jpeg, data.get("quad"), data.get("bbox"))
+    front, how = _one_side(jpeg, data.get("quad"), data.get("bbox"), data.get("text_up"))
     ways = [f"表: {how}"]
     ok = not how.startswith("切り出せず")
     if not back_jpeg:
         return front, ok, ways
-    back, how_b = _one_side(back_jpeg, data.get("back_quad"), data.get("back_bbox"))
+    back, how_b = _one_side(back_jpeg, data.get("back_quad"), data.get("back_bbox"),
+                            data.get("back_text_up"))
     ways.append(f"裏: {how_b}")
     ok = ok and not how_b.startswith("切り出せず")
     return stack_vertical(front, back), ok, ways
@@ -127,7 +128,7 @@ def crop_diagnosis(data: dict, ways: list[str]) -> None:
             st.markdown(f"- {line}")
         src = Image.open(io.BytesIO(jpeg)).size
         st.caption(f"読み取りに送った画像: {src[0]}×{src[1]}px")
-        for key in ("quad", "bbox", "back_quad", "back_bbox"):
+        for key in ("quad", "bbox", "text_up", "back_quad", "back_bbox", "back_text_up"):
             value = data.get(key)
             if value is None and key.startswith("back") and not back_jpeg:
                 continue

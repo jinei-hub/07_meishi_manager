@@ -11,6 +11,7 @@ API キーはダミー）。GitHub Actions からも .env 無しでそのまま�
 from __future__ import annotations
 
 import importlib
+import io
 import os
 import sys
 from pathlib import Path
@@ -102,11 +103,12 @@ def _extract_keys():
 
     for with_back in (False, True):
         item = ex._schema(with_back=with_back)["properties"]["cards"]["items"]
-        for key in (["bbox", "quad"] + (["back_bbox", "back_quad"] if with_back else [])):
+        for key in (["bbox", "quad", "text_up"]
+                    + (["back_bbox", "back_quad", "back_text_up"] if with_back else [])):
             assert key in item["properties"], f"スキーマに {key} が無い"
             assert key in item["required"], f"{key} が required に無い"
     src = (ROOT / "ocr" / "extract.py").read_text()
-    for key in ("bbox", "quad", "back_bbox", "back_quad"):
+    for key in ("bbox", "quad", "text_up", "back_bbox", "back_quad", "back_text_up"):
         assert f'item["{key}"]' in src, f"返り値に {key} を詰めていない"
 
 
@@ -224,6 +226,65 @@ def _quad_snap():
 
 
 check("切り出しが紙の縁に吸着する", _quad_snap)
+
+
+# 2.9 実写で出た症状。木目の机・紙に落ちた影・読み取りの四隅が1割以上大きい。
+#     以前は探す範囲が狭く、影で明るさの閾値も効かず、机を残したまま保存していた。
+def _quad_shadow():
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from services.imaging import _encode, crop_quad
+
+    w, h, x0, y0, cw, ch = 1600, 1200, 300, 300, 1000, 600
+
+    def photo(stripe=False):
+        base = np.zeros((h, w, 3), np.float32) + np.array((150, 100, 60), np.float32)
+        base = base + (np.sin(np.arange(h) / 9.0) * 14)[:, None, None]
+        base[y0:y0 + ch, x0:x0 + cw] = (238, 232, 218)
+        if stripe:
+            base[y0:y0 + ch, x0:x0 + 150] = (30, 50, 120)
+        base[:, :x0 + 450] *= 0.6                # 紙の途中まで影が落ちている
+        img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8))
+        ImageDraw.Draw(img).rectangle((x0 + 500, y0 + 200, x0 + 900, y0 + 230), fill=(30, 30, 30))
+        return _encode(img)
+
+    quad = [{"x": x0 - 30, "y": y0 - 20}, {"x": x0 + cw + 130, "y": y0 - 15},
+            {"x": x0 + cw + 120, "y": y0 + ch + 80}, {"x": x0 - 20, "y": y0 + ch + 75}]
+    for stripe in (False, True):
+        detail: dict = {}
+        out = Image.open(io.BytesIO(crop_quad(photo(stripe), quad, detail=detail))).convert("RGB")
+        assert detail.get("refined"), f"縁に吸着できなかった（stripe={stripe}）"
+        assert abs(out.width - cw) <= cw * 0.015, f"幅が合わない: {out.width}（stripe={stripe}）"
+        assert abs(out.height - ch) <= ch * 0.015, f"高さが合わない: {out.height}"
+        if stripe:   # 紙の端の色帯を机とみなして切り落としていないか
+            r, _g, b = out.getpixel((10, out.height // 2))
+            assert b > r, "紙の端の色帯を切り落とした"
+
+
+check("影と木目があっても机を残さない", _quad_shadow)
+
+
+# 2.10 四隅の順序が狂っていても text_up で正立する。実写で横向きのまま保存された。
+def _text_up():
+    from services.imaging import _orient_quad
+
+    box = [{"x": 100, "y": 100}, {"x": 700, "y": 100},
+           {"x": 700, "y": 460}, {"x": 100, "y": 460}]   # 写真上で時計回り
+    first = {"top": (100, 100), "right": (700, 100),
+             "bottom": (700, 460), "left": (100, 460)}
+    for up, corner in first.items():
+        for shift in range(4):
+            given = box[shift:] + box[:shift]
+            for quad in (given, given[::-1]):            # 回転ずれ・逆回りの両方
+                got = _orient_quad(quad, up)
+                assert (got[0]["x"], got[0]["y"]) == corner, f"{up}: 左上を取り違えた"
+    assert _orient_quad(box, None) == box, "text_up が無ければそのまま返す"
+    assert _orient_quad(box, "diagonal") == box, "不正な text_up でもそのまま返す"
+    assert _orient_quad(None, "top") is None, "壊れた四隅でも落ちない"
+
+
+check("四隅の順序を text_up で直す", _text_up)
 
 
 # 3. 各ページを Streamlit の中で実際に1回実行する。

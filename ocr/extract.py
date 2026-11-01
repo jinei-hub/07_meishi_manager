@@ -35,6 +35,10 @@ SYSTEM_PROMPT = (
     "ここでの『左上』は、その名刺の文字が正しく読める向きに見たときの左上とすること"
     "（名刺が横倒しや上下逆に写っていても、文字が正立する向きを基準にする）。"
     "紙の角が画像の外にはみ出している場合は、はみ出した先の角の位置を推定して返すこと。"
+    "さらに text_up に、名刺の文字の上側が渡された画像のどちらを向いているかを入れること。"
+    "文字がそのまま読めるなら top、右に90度倒れていて上側が画像の右を向くなら right、"
+    "上下逆なら bottom、上側が画像の左を向くなら left。"
+    "縦書きの名刺も、1文字1文字の上側を基準にすること。"
 )
 
 _CARD_PROPS = {
@@ -91,6 +95,15 @@ _QUAD_PROP = {
     "items": _POINT_PROP,
 }
 
+# 文字の上側が写真のどちらか。quad の順序だけに頼ると、横倒しの名刺で左上を
+# 取り違えたまま保存される（2026-10-23 に実機で発生）ので別の項目で答えさせ、
+# 順序は services/imaging.py の _orient_quad が決め直す。
+_TEXT_UP_PROP = {
+    "type": "string",
+    "enum": ["top", "right", "bottom", "left"],
+    "description": "名刺の文字の上側が、画像のどちらを向いているか",
+}
+
 # 構造化出力スキーマ（additionalProperties:false 必須）: 複数名刺に対応
 EXTRACT_SCHEMA = {
     "type": "object",
@@ -100,8 +113,9 @@ EXTRACT_SCHEMA = {
             "description": "検出した名刺（画像内の枚数分）",
             "items": {
                 "type": "object",
-                "properties": {**_CARD_PROPS, "bbox": _BBOX_PROP, "quad": _QUAD_PROP},
-                "required": _CARD_KEYS + ["bbox", "quad"],
+                "properties": {**_CARD_PROPS, "bbox": _BBOX_PROP, "quad": _QUAD_PROP,
+                               "text_up": _TEXT_UP_PROP},
+                "required": _CARD_KEYS + ["bbox", "quad", "text_up"],
                 "additionalProperties": False,
             },
         },
@@ -126,6 +140,7 @@ BACK_INSTRUCTION = (
     "bbox は画像1（表面）での名刺の位置、back_bbox は画像2（裏面）での名刺の位置を、"
     "それぞれの画像自身のピクセル座標で返すこと。"
     "quad / back_quad も同様に、それぞれの画像での四隅を返すこと。"
+    "text_up / back_text_up も、それぞれの画像での文字の向きを返すこと。"
 )
 
 
@@ -140,8 +155,9 @@ def _schema(with_back: bool) -> dict:
         "properties": {"cards": {**cards, "items": {
             **item,
             "properties": {**item["properties"],
-                           "back_bbox": _BBOX_PROP, "back_quad": _QUAD_PROP},
-            "required": item["required"] + ["back_bbox", "back_quad"],
+                           "back_bbox": _BBOX_PROP, "back_quad": _QUAD_PROP,
+                           "back_text_up": _TEXT_UP_PROP},
+            "required": item["required"] + ["back_bbox", "back_quad", "back_text_up"],
         }}},
     }
 
@@ -158,7 +174,7 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
 
     Returns:
         [{name, company, department, title, phone, fax, mobile,
-          email, website, postal_code, address, bbox, quad}, ...]  （検出した枚数分）
+          email, website, postal_code, address, bbox, quad, text_up}, ...]  （検出した枚数分）
         bbox は {x1,y1,x2,y2}、quad は [{x,y} x4] のピクセル座標（取得できなければ None）
         back_image_bytes を渡すと表裏を1人分に統合し、back_bbox / back_quad も返す
     Raises:
@@ -251,5 +267,7 @@ def extract_cards(image_bytes: bytes, media_type: str = "image/jpeg",
         item["quad"] = c.get("quad") if isinstance(c.get("quad"), list) else None
         bq = c.get("back_quad")
         item["back_quad"] = bq if isinstance(bq, list) else None
+        item["text_up"] = c.get("text_up")
+        item["back_text_up"] = c.get("back_text_up")
         out.append(item)
     return out

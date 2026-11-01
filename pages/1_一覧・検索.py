@@ -61,7 +61,8 @@ def thumb(card_id: int) -> bytes | None:
         return None
     try:
         # 名刺比率(91:55)の枠に収める。行ごとに高さがぶれないようにする。
-        return thumbnail_bytes(raw, width=180, height=110)
+        # スマホは列が縦積みになり画面幅いっぱいに広がるので、180x110 だとぼやける。
+        return thumbnail_bytes(raw, width=540, height=330)
     except Exception:
         return None
 
