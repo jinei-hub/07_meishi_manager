@@ -19,6 +19,8 @@ from pathlib import Path
 
 import streamlit as st
 
+from pwa import enable_pwa
+
 # ロゴは会社サイト（dipilot-wp/dipilot-theme/assets/images/logo.png）と同じもの。
 # このリポジトリは公開されているが、ロゴは会社サイトに出ている公開物なので置いてよい。
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -151,3 +153,7 @@ def apply_theme() -> None:
         f'<a href="{SITE}" target="_blank" rel="noopener">dipilot.jp</a></div>',
         unsafe_allow_html=True,
     )
+
+    # ホーム画面に追加して「アプリ」として起動できるようにする（head に PWA タグを注入）。
+    # 全ページが apply_theme を通るので、ここで呼べば1か所で全ページ対応になる。
+    enable_pwa()

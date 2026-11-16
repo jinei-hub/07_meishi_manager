@@ -1,5 +1,6 @@
 .env
 .streamlit/secrets.toml
+.claude/
 credentials/
 data/
 .venv/

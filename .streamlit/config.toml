@@ -6,6 +6,10 @@
 #    ヘルスチェックに失敗する（2026-09-09 に発生）。
 #    ローカルで 8502 を使いたいときは起動時に渡す:
 #      streamlit run main.py --server.port 8502
+[server]
+# static/ をアプリから配信する（PWA の manifest・アイコンを <origin>/app/static/ で配る）。
+enableStaticServing = true
+
 [theme]
 base = "light"
 primaryColor = "#008afc"

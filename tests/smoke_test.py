@@ -60,6 +60,7 @@ for mod in (
     "db.models", "db.session", "ocr.extract",
     "services.cards", "services.export", "services.imaging", "services.mail_log",
     "mail.templates", "mail.compose", "mail.gmail", "mail.ui",
+    "theme", "pwa",
     "anthropic", "pillow_heif",
     "googleapiclient.discovery", "google.oauth2.credentials", "google_auth_oauthlib.flow",
 ):
