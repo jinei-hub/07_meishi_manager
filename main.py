@@ -87,6 +87,33 @@ if st.session_state.get("_last_back_len", 0) != back_sig:
 back_jpeg = st.session_state.get("back_jpeg")
 
 
+def _scroll_into_view() -> None:
+    """この位置を画面内までスクロールする（詳細を開いた回だけ呼ぶ）。
+
+    高さ0の不可視コンポーネントの iframe 要素を、親フレームで scrollIntoView する。
+    expander は下にそっと開くだけで気づかれないため、開いた瞬間に詳細まで送る。
+    """
+    from streamlit.components.v1 import html
+
+    html(
+        """
+<script>
+(function () {
+  try {
+    var f = window.frameElement;         // 親ドキュメント内のこの iframe
+    if (f && f.scrollIntoView) {
+      setTimeout(function () {
+        f.scrollIntoView({behavior: "smooth", block: "center"});
+      }, 60);
+    }
+  } catch (e) {}
+})();
+</script>
+""",
+        height=0,
+    )
+
+
 def _one_side(src: bytes, quad, bbox, text_up) -> tuple[bytes, str]:
     """片面を切り出し、(画像, 使った方式) を返す。方式は画面の診断に出す。
 
@@ -141,9 +168,26 @@ def card_image(data: dict, i: int, turns: int = 0) -> tuple[bytes, bool, list[st
     return img, ok, ways
 
 
-def crop_diagnosis(data: dict, ways: list[str]) -> None:
-    """切り出しの内訳を折りたたんで出す。読み取り結果の生の座標も見せる。"""
-    with st.expander("切り出しの詳細（うまくいかないときに開く）"):
+def crop_diagnosis(data: dict, ways: list[str], i: int) -> None:
+    """切り出しの内訳をボタンで開閉する。読み取り結果の生の座標も見せる。
+
+    expander をやめてボタン＋自動スクロールにした（開いても下にそっと展開するだけで
+    気づかれず「押せていない」と誤解された。2026-11-21 の要望）。開いた回だけ詳細まで
+    画面を送る。
+    """
+    open_now = st.session_state.get(f"showdetail_{i}", False)
+    label = "🔧 切り出しの詳細を閉じる" if open_now else "🔧 切り出しの詳細（うまくいかないときに開く）"
+    if st.button(label, key=f"detailbtn_{i}", width="stretch"):
+        open_now = not open_now
+        st.session_state[f"showdetail_{i}"] = open_now
+        if open_now:                       # 開いた回だけスクロールする（編集中は動かさない）
+            st.session_state[f"_scrolldetail_{i}"] = True
+        st.rerun()
+    if not open_now:
+        return
+    with st.container(border=True):
+        if st.session_state.pop(f"_scrolldetail_{i}", False):
+            _scroll_into_view()
         for line in ways:
             st.markdown(f"- {line}")
         src = Image.open(io.BytesIO(jpeg)).size
@@ -176,9 +220,10 @@ if jpeg:
     if st.button(read_label, type="primary", width="stretch"):
         with st.spinner("AIが名刺を読み取っています…"):
             try:
-                # 前の読み取りの手動回転・切り出しキャッシュが新しい名刺に残らないよう消す
+                # 前の読み取りの手動回転・切り出しキャッシュ・詳細の開閉が新しい名刺に
+                # 残らないよう消す
                 for k in [k for k in st.session_state
-                          if k.startswith("rot_") or k.startswith("cardbase_")]:
+                          if k.startswith(("rot_", "cardbase_", "showdetail_", "_scrolldetail_"))]:
                     st.session_state.pop(k, None)
                 st.session_state["extracted"] = extract_cards(jpeg, back_image_bytes=back_jpeg)
             except ExtractError as e:
@@ -222,7 +267,7 @@ if jpeg and "extracted" in st.session_state:
                     st.rerun()
                 if not ok:
                     st.caption("一部の切り出しに失敗したため、その面は写真全体を保存します。")
-                crop_diagnosis(data, ways)
+                crop_diagnosis(data, ways, i)
                 for key, label in FIELDS:
                     value = data.get(key, "") or ""
                     st.markdown(f"**{label}**")
@@ -248,8 +293,8 @@ if jpeg and "extracted" in st.session_state:
                     saved += 1
             st.success(f"{saved} 件を保存しました。「一覧・検索」ページで確認できます。")
             for k in list(st.session_state.keys()):
-                if (k.startswith("edit_") or k.startswith("rot_")
-                        or k.startswith("cardbase_") or k in (
+                if (k.startswith(("edit_", "rot_", "cardbase_", "showdetail_",
+                                  "_scrolldetail_")) or k in (
                         "extracted", "jpeg", "back_jpeg",
                         "_last_raw_len", "_last_back_len", "src_size")):
                     st.session_state.pop(k, None)
