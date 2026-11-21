@@ -188,6 +188,96 @@ def rotate_upright(jpeg: bytes, text_up) -> bytes:
     return _encode(img.rotate(angle, expand=True))
 
 
+# 手動の向き直し用。transpose は再標本化しない（画質が落ちない）ので rotate より良い。
+_QUARTER_TURN = {1: Image.Transpose.ROTATE_270,   # 時計回り90°
+                 2: Image.Transpose.ROTATE_180,
+                 3: Image.Transpose.ROTATE_90}     # 時計回り270°＝反時計回り90°
+
+
+def rotate_quarters(jpeg: bytes, turns: int) -> bytes:
+    """画像を時計回りに 90°×turns 回す（turns は 0〜3、それ以外は mod 4）。
+
+    AI の向き判定（text_up）は左右を取り違えることがあり、横倒しの名刺が上下逆で
+    保存される（2026-11-21 に実機で確認。モデルは left/right をどちらも right と答える）。
+    画面の「90°回転」ボタンから人が1タップで直せるようにするためのもの。
+    """
+    op = _QUARTER_TURN.get(turns % 4)
+    if op is None:                       # turns % 4 == 0（回さない）
+        return jpeg
+    return _encode(Image.open(io.BytesIO(jpeg)).transpose(op))
+
+
+def _row_edge_sharpness(gray: "np.ndarray") -> float:
+    """横エッジ（縦方向の勾配）を行ごとに合計し、その行間差の二乗和を返す。
+
+    文字のベースラインや色帯の境界など「水平な線」が揃うほど、特定の行に横エッジが
+    集中して投影が鋭くなり、この値が大きくなる。塊の内部は勾配ゼロで効かないので、
+    緑帯のような大面積に惑わされずに文字の傾きを拾える（投影の分散より鋭い）。
+    """
+    proj = np.abs(np.diff(gray, axis=0)).sum(axis=1)
+    d = np.diff(proj)
+    return float(np.dot(d, d))
+
+
+def _skew_angle(gray: "np.ndarray", max_angle: float) -> float:
+    """文字が水平になるための補正角（度, 反時計回り正）。見つからなければ0。
+
+    紙の四隅から台形補正しても、モデルの四隅が数度ずれると文字が傾いて残る
+    （2026-11-21 に実機で確認）。紙の縁ではなく「文字・色帯の横線」を基準に角度を測る。
+    候補角で回して横エッジの鋭さ（_row_edge_sharpness）が最大になる角を探す。
+    粗く1度刻み→その周りを0.25度刻みで詰める。下見解像度で測るので弱いCPUでも速い。
+    """
+    h, w = gray.shape
+    if h < 40 or w < 40:
+        return 0.0
+    src = Image.fromarray(gray.astype(np.uint8))
+    fill = int(gray.mean())
+
+    def score_at(angle: float) -> float:
+        rot = np.asarray(
+            src.rotate(angle, resample=Image.BILINEAR, fillcolor=fill, expand=False),
+            dtype=np.float32)
+        hh, ww = rot.shape
+        crop = rot[int(hh * 0.08):int(hh * 0.92), int(ww * 0.08):int(ww * 0.92)]
+        return _row_edge_sharpness(crop)
+
+    angles = np.arange(-max_angle, max_angle + 1e-9, 1.0)
+    coarse_scores = [(float(a), score_at(float(a))) for a in angles]
+    coarse = max(coarse_scores, key=lambda t: t[1])[0]
+    fine_scores = [(float(a), score_at(float(a)))
+                   for a in np.arange(coarse - 1.0, coarse + 1.0 + 1e-9, 0.25)]
+    best_a, best_s = max(fine_scores, key=lambda t: t[1])
+
+    # 明確なピークのときだけ回す（全角度の中央値より十分大きいこと）。
+    # 文字の少ない名刺やノイズで、微妙な角度に回して悪化させるのを防ぐ。
+    med = float(np.median([s for _, s in coarse_scores]))
+    if med <= 0 or best_s < med * 1.8:
+        return 0.0
+    return float(best_a) if abs(best_a) >= 0.3 else 0.0
+
+
+def deskew_text(jpeg: bytes, max_angle: float = 10.0) -> bytes:
+    """切り出した名刺の文字が水平になるよう、わずかに回して整える。
+
+    紙の四隅からの台形補正だけでは、モデルの四隅のズレ分の傾きが残る（実機で確認、
+    2026-11-21）。文字の並びを基準に ±max_angle 度までの範囲で水平に合わせる。
+    文字を欠けさせないため、回転は余白を白で足して全内容を残す（内側に詰めない）。
+    """
+    img = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    probe_w = 460
+    if img.width > probe_w:
+        small = img.resize((probe_w, max(1, round(img.height * probe_w / img.width))),
+                           Image.BILINEAR)
+    else:
+        small = img
+    angle = _skew_angle(np.asarray(small.convert("L"), dtype=np.float32), max_angle)
+    if angle == 0.0:
+        return jpeg
+    rotated = img.rotate(angle, resample=Image.BICUBIC, expand=True,
+                         fillcolor=(255, 255, 255))
+    return _encode(rotated)
+
+
 def crop_quad(jpeg: bytes, quad, margin: float = 0.01, refine: bool = True,
               detail: dict | None = None, text_up: str | None = None) -> bytes | None:
     """名刺の四隅から、正面から見た長方形を起こす（台形補正）。使えなければ None。

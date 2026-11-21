@@ -13,8 +13,9 @@ from db.models import FIELDS
 from db.session import init_db
 from ocr.extract import current_model, extract_cards, ExtractError
 from services import cards
-from services.imaging import (crop_bbox, crop_quad, probe_size, rotate_upright,
-                              stack_vertical, to_jpeg_bytes)
+from services.imaging import (crop_bbox, crop_quad, deskew_text, probe_size,
+                              rotate_quarters, rotate_upright, stack_vertical,
+                              to_jpeg_bytes)
 
 st.set_page_config(page_title="名刺管理", page_icon=PAGE_ICON, layout="wide")
 
@@ -91,23 +92,25 @@ def _one_side(src: bytes, quad, bbox, text_up) -> tuple[bytes, str]:
 
     台形補正を優先する。斜めから撮っても真っ直ぐになり、横倒しに撮った名刺も
     正しい向きになる。四隅が信用できないときだけ従来の bbox に落とす。
+
+    refine（紙の縁への吸着）は使わない。読み取りの四隅をそのまま使う。吸着は、
+    元々まっすぐだった四隅を歪めて下の行を切り落とすことがあり（2026-11-21 に実機で
+    確認）、「机の細い残りは許容・文字を欠けさせない」という方針に反するため。
     """
-    detail: dict = {}
-    out = crop_quad(src, quad, detail=detail, text_up=text_up)
+    out = crop_quad(src, quad, text_up=text_up, refine=False)
     if out is not None:
-        snapped = "紙の縁に吸着" if detail.get("refined") else "読み取りの四隅のまま（縁を見つけられず）"
-        return out, f"四隅から台形補正 / {snapped}"
+        # 四隅のズレで残る傾きを、文字の並びを基準に水平へ合わせる
+        return deskew_text(out), "四隅から台形補正＋文字を水平に整列"
     out = crop_bbox(src, bbox)
     if out is not None:
-        return rotate_upright(out, text_up), "bbox で切り出し（四隅は使えず）"
+        return deskew_text(rotate_upright(out, text_up)), "bbox で切り出し＋文字を水平に整列"
     return rotate_upright(src, text_up), "切り出せず写真全体"
 
 
-def card_image(data: dict) -> tuple[bytes, bool, list[str]]:
-    """保存する画像（その人の名刺だけ。裏面があれば表の下に並べる）と、切り出せたか。
+def _card_base(data: dict) -> tuple[bytes, bool, list[str]]:
+    """手動回転前の保存画像（その人の名刺だけ。裏面は表の下）と、切り出せたか、方式一覧。
 
-    3つめは「表はこの方式」という説明の一覧で、画面の診断表示にだけ使う。
-    どの経路を通ったか分からないと、切り出しが効かないときに原因を追えない。
+    方式一覧は「表はこの方式」の説明で、画面の診断表示にだけ使う。
     """
     front, how = _one_side(jpeg, data.get("quad"), data.get("bbox"), data.get("text_up"))
     ways = [f"表: {how}"]
@@ -119,6 +122,23 @@ def card_image(data: dict) -> tuple[bytes, bool, list[str]]:
     ways.append(f"裏: {how_b}")
     ok = ok and not how_b.startswith("切り出せず")
     return stack_vertical(front, back), ok, ways
+
+
+def card_image(data: dict, i: int, turns: int = 0) -> tuple[bytes, bool, list[str]]:
+    """保存する画像と、切り出せたか、方式の一覧。turns は手動90°回転の回数。
+
+    切り出し＋デスキューは重い（弱いCPUで1枚あたり1〜2秒）。回転前の画像をカードごとに
+    session_state にキャッシュし、再実行（回転ボタンや項目編集のたびに起きる）で作り直さ
+    ない。手動回転はキャッシュした画像に後からかける。
+    """
+    cached = st.session_state.get(f"cardbase_{i}")
+    if cached is None:
+        cached = _card_base(data)
+        st.session_state[f"cardbase_{i}"] = cached
+    img, ok, ways = cached
+    if turns % 4:
+        img = rotate_quarters(img, turns)
+    return img, ok, ways
 
 
 def crop_diagnosis(data: dict, ways: list[str]) -> None:
@@ -156,6 +176,10 @@ if jpeg:
     if st.button(read_label, type="primary", width="stretch"):
         with st.spinner("AIが名刺を読み取っています…"):
             try:
+                # 前の読み取りの手動回転・切り出しキャッシュが新しい名刺に残らないよう消す
+                for k in [k for k in st.session_state
+                          if k.startswith("rot_") or k.startswith("cardbase_")]:
+                    st.session_state.pop(k, None)
                 st.session_state["extracted"] = extract_cards(jpeg, back_image_bytes=back_jpeg)
             except ExtractError as e:
                 st.error(str(e))
@@ -187,9 +211,15 @@ if jpeg and "extracted" in st.session_state:
             company_txt = data.get("company") or ""
             with st.expander(f"名刺 {i + 1}: {title_txt} / {company_txt}", expanded=(len(detected) == 1)):
                 # 複数枚を1枚の写真で撮っても、保存されるのはその人の名刺だけ
-                img, ok, ways = card_image(data)
+                turns = st.session_state.get(f"rot_{i}", 0)
+                img, ok, ways = card_image(data, i, turns)
                 caption = "この名刺として保存されます" + ("（上: 表 / 下: 裏）" if back_jpeg else "")
                 st.image(img, caption=caption, width=320)
+                # AI の向き判定は左右を取り違えることがある。逆さ・横倒しは手で直す。
+                if st.button("↻ 90°回転", key=f"rotbtn_{i}",
+                             help="上下逆・横向きのときに押すと時計回りに90°回ります"):
+                    st.session_state[f"rot_{i}"] = (turns + 1) % 4
+                    st.rerun()
                 if not ok:
                     st.caption("一部の切り出しに失敗したため、その面は写真全体を保存します。")
                 crop_diagnosis(data, ways)
@@ -212,14 +242,16 @@ if jpeg and "extracted" in st.session_state:
                 # 全項目が空のカードはスキップ
                 if any((fields.get(k) or "").strip() for k, _ in FIELDS):
                     # その名刺の部分だけを保存する。切り出せなければ写真全体。
-                    img, _ok, _ways = card_image(detected[i])
+                    # 画面で手動回転した分（rot_i）も反映して保存する。
+                    img, _ok, _ways = card_image(detected[i], i, st.session_state.get(f"rot_{i}", 0))
                     cards.create(fields, image_bytes=img)
                     saved += 1
             st.success(f"{saved} 件を保存しました。「一覧・検索」ページで確認できます。")
             for k in list(st.session_state.keys()):
-                if k.startswith("edit_") or k in ("extracted", "jpeg", "back_jpeg",
-                                                  "_last_raw_len", "_last_back_len",
-                                                  "src_size"):
+                if (k.startswith("edit_") or k.startswith("rot_")
+                        or k.startswith("cardbase_") or k in (
+                        "extracted", "jpeg", "back_jpeg",
+                        "_last_raw_len", "_last_back_len", "src_size")):
                     st.session_state.pop(k, None)
             # 選択欄も空にする（次の名刺をすぐ撮れるように）
             st.session_state["upload_round"] = _round + 1

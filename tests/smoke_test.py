@@ -317,6 +317,81 @@ def _text_up():
 check("四隅の順序を text_up で直す", _text_up)
 
 
+# 2.11 横倒しの名刺が上下逆で保存される件（モデルは文字の向きの left/right を区別できず、
+#      どちらも right と答える。2026-11-21 に実機で確認）。自動では直せないので画面の
+#      「90°回転」ボタンで人が直す。その回転が素直に時計回り90°ずつ回ること、本番の
+#      切り出しが縁の吸着(refine)を使わない（まっすぐなモデルの四隅を歪めて下の行を
+#      切り落とすため。同日に実機で確認）ことを固定する。
+def _manual_rotate():
+    import numpy as np
+    from PIL import Image
+    from services.imaging import _encode, rotate_quarters
+
+    w, h = 400, 240
+    jpeg = _encode(Image.new("RGB", (w, h), "white"))
+    for turns, size in [(0, (w, h)), (1, (h, w)), (2, (w, h)), (3, (h, w)), (4, (w, h))]:
+        got = Image.open(io.BytesIO(rotate_quarters(jpeg, turns))).size
+        assert got == size, f"{turns}回転でサイズが {got}（期待 {size}）"
+
+    # 向きが実際に変わること。左半分を赤にして、2回転(180°)で赤が右へ、4回転で元に戻る
+    # ことを見る（回転方向は運用で合わせるので、ここでは180°・一周だけ担保する）。
+    half = Image.new("RGB", (w, h), "white")
+    half.paste((220, 30, 30), (0, 0, w // 2, h))
+    base = _encode(half)
+
+    def left_is_red(img_bytes) -> bool:
+        a = np.asarray(Image.open(io.BytesIO(img_bytes)).convert("RGB"), dtype=float)
+        redness = a[..., 0] - (a[..., 1] + a[..., 2]) / 2   # 白は0、赤は大きい
+        left = redness[:, : a.shape[1] // 2].mean()
+        right = redness[:, a.shape[1] // 2:].mean()
+        return left > right + 40
+
+    assert left_is_red(base), "試験画像の左が赤でない"
+    assert not left_is_red(rotate_quarters(base, 2)), "180°で赤が右へ移っていない"
+    assert left_is_red(rotate_quarters(base, 4)), "4回転で元に戻っていない"
+
+    # 本番の切り出しは refine を使わない（モデルの四隅をそのまま信用する）。
+    src = (ROOT / "main.py").read_text()
+    assert "refine=False" in src, "main.py の本番切り出しが refine=False になっていない"
+
+
+check("手動90°回転と本番の refine=False", _manual_rotate)
+
+
+# 2.12 紙の四隅から台形補正しても、モデルの四隅のズレ分の傾きが文字に残る
+#      （2026-11-21 に実機で確認。ユーザー「まだ斜め、文字へ平行に」）。文字・色帯の
+#      横線を基準にデスキューして水平へ合わせる。既知の傾きを注入して戻せること、
+#      まっすぐな画像を回さないことの両方を見る。
+def _deskew():
+    from PIL import Image, ImageDraw
+    import numpy as np
+    from services.imaging import _skew_angle, deskew_text, _encode
+
+    card = Image.new("RGB", (640, 400), "white")
+    draw = ImageDraw.Draw(card)
+    for y in range(60, 360, 42):                 # 文字行に見立てた横線
+        draw.rectangle([60, y, 580, y + 16], fill=(20, 20, 20))
+
+    def detect(img: "Image.Image") -> float:
+        pw = 460
+        s = img.convert("L").resize((pw, round(img.height * pw / img.width)))
+        return _skew_angle(np.asarray(s, dtype=np.float32), 10.0)
+
+    assert abs(detect(card)) < 0.3, "まっすぐな画像を回そうとした"
+    for inj in (-4.0, -2.0, 3.0, 5.0):
+        tilted = card.rotate(inj, resample=Image.BICUBIC, expand=True,
+                             fillcolor=(255, 255, 255))
+        got = detect(tilted)                     # 補正角は注入の逆向き
+        assert abs(got + inj) <= 0.6, f"{inj}度の傾きを戻せない（検出 {got}）"
+
+    tilted = card.rotate(5.0, resample=Image.BICUBIC, expand=True, fillcolor=(255, 255, 255))
+    out = deskew_text(_encode(tilted))
+    assert abs(detect(Image.open(io.BytesIO(out)))) < 0.6, "deskew 後も傾きが残る"
+
+
+check("文字を水平に整列（deskew）", _deskew)
+
+
 # 3. 各ページを Streamlit の中で実際に1回実行する。
 #    APP_PASSWORD があるのでログイン画面で止まるが、ページ冒頭の import は全部通る。
 def _run_page(path: str):
